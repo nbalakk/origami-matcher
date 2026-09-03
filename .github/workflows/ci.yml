@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Тесты ядра
+        run: node --test tests/
+
+      - name: Сборка
+        run: python3 tools/build.py
+
+      - name: Собранные файлы совпадают с исходниками
+        run: |
+          git diff --exit-code -- index.html dist/ \
+            || (echo "::error::dist устарел — выполните 'npm run build' и закоммитьте результат"; exit 1)

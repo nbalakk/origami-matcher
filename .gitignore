@@ -1,5 +1,2 @@
-src/
-tests/
-build.py
-shell.html
 _*.html
+node_modules/

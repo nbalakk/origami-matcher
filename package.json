@@ -1,0 +1,11 @@
+{
+  "name": "origami-matcher",
+  "version": "3.1.0",
+  "private": true,
+  "description": "Конструктор заливочных файлов: подстановка ставок и бюджетов из мастер-файла в выгрузку, проверка до заливки и сверка после.",
+  "scripts": {
+    "test": "node --test tests/",
+    "build": "python tools/build.py"
+  },
+  "engines": { "node": ">=20" }
+}

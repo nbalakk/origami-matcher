@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"><title>Проверки ядра</title>
+<style>
+ body{font:14px/1.6 -apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f4f6f9;color:#161d26;margin:0;padding:26px;}
+ .wrap{max-width:860px;margin:0 auto;}
+ h1{font-size:19px;margin:0 0 4px;} .sub{color:#68737e;font-size:13px;margin:0 0 16px;}
+ #sum{border-radius:9px;padding:11px 14px;font-weight:600;margin-bottom:12px;}
+ .ok{background:#e6f6ec;color:#0d7a41;} .bad{background:#fcebea;color:#b3261e;}
+ pre{background:#fff;border:1px solid #e3e7ed;border-radius:9px;padding:13px;font-size:12.5px;
+     white-space:pre-wrap;max-height:70vh;overflow:auto;}
+ .f{color:#b3261e;font-weight:700;}
+</style></head><body><div class="wrap">
+<h1>Проверки ядра</h1>
+<p class="sub">Тот же набор, что гоняется в CI (<code>node --test</code>), плюс чтение xlsx — оно требует браузерных API.</p>
+<div id="sum">запуск…</div><pre id="log"></pre></div>
+
+<script src="../src/core/fmt.js"></script>
+<script src="../src/core/export.js"></script>
+<script src="../src/core/sheet.js"></script>
+<script src="../src/core/rules.js"></script>
+<script src="../src/core/build.js"></script>
+<script src="../src/core/audit.js"></script>
+<script src="../src/core/verify.js"></script>
+<script src="../src/xlsx/reader.js"></script>
+<script src="suite.js"></script>
+<script>
+(async function(){
+  var sum=document.getElementById("sum"), log=document.getElementById("log");
+  try{
+    var r=await Suite.run();
+    sum.className=r.ok?"ok":"bad";
+    sum.textContent=r.ok?("Все "+r.count+" проверок пройдены"):"ЕСТЬ ПАДЕНИЯ — см. строки со знаком ✗";
+    log.innerHTML=r.log.split("\n").map(function(l){
+      return l.indexOf("✗")===0?'<span class="f">'+l+'</span>':l; }).join("\n");
+  }catch(e){ sum.className="bad"; sum.textContent="Ошибка запуска: "+e.message; }
+})();
+</script></body></html>
