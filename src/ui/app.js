@@ -146,14 +146,11 @@ function addRule(){
   if(!S.exp||!S.sources.length)return;
   var si=Math.min(S.rules.length,S.sources.length-1);
   var r={name:S.sources[si].name,sheet:si,useScope:false,scopeIds:[],map:{}};
-  autoMapRule(r); S.rules.push(r);
+  clearRuleMap(r); S.rules.push(r);
 }
-function autoMapRule(r){
-  var sh=S.sources[r.sheet]; if(!sh)return; var h=sh.rows[sh.headerRow]||[];
-  r.map={};
-  if(S.exp.mode==="bids") S.exp.goals.forEach(function(g){ var c=Sheet.guessGoalCol(h,g.id); if(c>=0)r.map[g.id]=c; });
-  else { var c=Sheet.guessBudgetCol(h); if(c>=0)r.map.BUDGET=c; }
-}
+/* Столбцы под значения не подбираются автоматически: кейсы каждый раз разные,
+   и «умная» подстановка создаёт ложное доверие. Специалист выбирает сам. */
+function clearRuleMap(r){ r.map={}; }
 function colOptions(si,sel){
   var s=S.sources[si]; if(!s)return '<option value="-1">—</option>';
   var h=s.rows[s.headerRow]||[],cols=0; s.rows.forEach(function(r){if(r.length>cols)cols=r.length;});
@@ -203,6 +200,9 @@ function bestSheet(exceptIdx){
 function matchInfo(r){
   var m=ruleMatch(r);
   if(!m)return '<span class="muted small">—</span>';
+  var chosen=Object.keys(r.map||{}).filter(function(k){return r.map[k]>=0;}).length;
+  if(!chosen) return '<div class="box info small" style="margin:0">Выбери ниже столбец со значением — '+
+    'после этого посчитаю, сколько кампаний правила есть в заливочном.</div>';
   var addable = S.exp && S.exp.mode==="budget";
   var cls = (m.withVal===0) ? "warn"
           : (m.valIn===m.withVal) ? "ok"
@@ -257,7 +257,7 @@ function renderRules(){
   host.querySelectorAll("[data-rm]").forEach(function(b){b.addEventListener("click",function(){
     S.rules.splice(+b.dataset.rm,1); renderRules(); renderMiss(); ready(); });});
   host.querySelectorAll("[data-sheet]").forEach(function(s){s.addEventListener("change",function(){
-    var r=S.rules[+s.dataset.sheet]; r.sheet=+s.value; r.name=S.sources[r.sheet].name; autoMapRule(r);
+    var r=S.rules[+s.dataset.sheet]; r.sheet=+s.value; r.name=S.sources[r.sheet].name; clearRuleMap(r);
     renderRules(); renderMiss(); ready(); });});
   host.querySelectorAll("[data-scope]").forEach(function(el){el.addEventListener("change",function(){
     var r=S.rules[+el.dataset.scope]; r.useScope=(el.value==="ids");
@@ -272,7 +272,7 @@ function renderRules(){
   host.querySelectorAll("[data-col]").forEach(function(s){s.addEventListener("change",function(){
     var p=s.dataset.col.split("|"),r=S.rules[+p[0]],v=+s.value;
     if(v<0)delete r.map[p[1]]; else r.map[p[1]]=v;
-    renderMiss(); ready(); });});
+    renderRules(); renderMiss(); ready(); });});
   // проставить info по ID
   S.rules.forEach(function(r,ri){
     var el=host.querySelector('[data-idsinfo="'+ri+'"]'); if(!el||!r.scopeIds.length)return;

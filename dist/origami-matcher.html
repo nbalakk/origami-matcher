@@ -256,37 +256,13 @@ var Sheet=(function(){
       loginCol:colByName(h,/логин|аккаунт/i),nameCol:colByName(h,/название/i),stratCol:colByName(h,/стратег/i)};
   }
   /* приоритет: «НОВАЯ»/«Итоговая» ≫ «тек.»/«по чеку»/«Ветка»/«кэф»/«Δ» */
-  function guessGoalCol(header,goalId){
-    var keys=KW[goalId]||[],best=-1,bs=0;
-    for(var i=0;i<header.length;i++){
-      var s=String(header[i]||"").toLowerCase(),sc=0;
-      keys.forEach(function(k){ if(s.indexOf(k)>=0)sc+=2; });
-      if(sc===0)continue;
-      if(!/ставк|бюджет|cpa/.test(s))sc-=1;
-      if(/нов|итог/.test(s))sc+=3;
-      if(/тек\.|текущ|по чеку|ветка|кэф|коэф|δ|дельта|соотнош|доля|ср\. чек|файл сейчас/.test(s))sc-=5;
-      if(sc>bs){bs=sc;best=i;}
-    }
-    return bs>=4?best:-1;
-  }
-  function guessBudgetCol(header){
-    var best=-1,bs=0;
-    for(var i=0;i<header.length;i++){
-      var s=String(header[i]||"").toLowerCase(); if(s.indexOf("бюджет")<0)continue;
-      var sc=2; if(/нов|примен/.test(s))sc+=3;
-      if(/тек|прошл|показател|достаточн|минимальн|лимит|не меняем/.test(s))sc-=2;
-      if(/применяем|не меняем/.test(s))sc+=2;
-      if(sc>bs){bs=sc;best=i;}
-    }
-    return bs>=2?best:-1;
-  }
   function parseIdList(raw){
     var seen={},out=[];
     (String(raw||"").match(/\d{5,}/g)||[]).forEach(function(id){ if(!seen[id]){seen[id]=1;out.push(id);} });
     return out;
   }
   return {parseCsvGrid:parseCsvGrid,describe:describe,findHeaderRow:findHeaderRow,findIdCol:findIdCol,
-          colByName:colByName,guessGoalCol:guessGoalCol,guessBudgetCol:guessBudgetCol,parseIdList:parseIdList};
+          colByName:colByName,parseIdList:parseIdList};
 })();
 
 /* работает и в браузере, и в Node — ядро не зависит от DOM */
@@ -754,7 +730,7 @@ document.getElementById("app").innerHTML = `
       <tr><td class="k">ТОП-50</td><td>лист с ТОП-50</td><td>список ID</td><td>Новая ставка б2б → B2B заказ и т.д.</td></tr>
       <tr><td class="k">B2C</td><td>лист B2C</td><td>список ID</td><td>Ставка CPA НОВАЯ → Ecommerce: покупка</td></tr>
     </table>
-    <p class="small muted" style="margin:8px 0 0">Столбцы подставятся сами — остаётся проверить глазами.
+    <p class="small muted" style="margin:8px 0 0">Столбцы под значения выбираются вручную: кейсы каждый раз разные, и подстановка «по догадке» опаснее, чем польза от неё.
       Если два правила дают одной кампании разные значения, программа покажет это как <b>конфликт</b>.
       В строке «Совпадение» видно, сколько кампаний правила реально есть в заливочном — если там ноль, значит перепутаны файлы.</p>
   </div>
@@ -976,14 +952,11 @@ function addRule(){
   if(!S.exp||!S.sources.length)return;
   var si=Math.min(S.rules.length,S.sources.length-1);
   var r={name:S.sources[si].name,sheet:si,useScope:false,scopeIds:[],map:{}};
-  autoMapRule(r); S.rules.push(r);
+  clearRuleMap(r); S.rules.push(r);
 }
-function autoMapRule(r){
-  var sh=S.sources[r.sheet]; if(!sh)return; var h=sh.rows[sh.headerRow]||[];
-  r.map={};
-  if(S.exp.mode==="bids") S.exp.goals.forEach(function(g){ var c=Sheet.guessGoalCol(h,g.id); if(c>=0)r.map[g.id]=c; });
-  else { var c=Sheet.guessBudgetCol(h); if(c>=0)r.map.BUDGET=c; }
-}
+/* Столбцы под значения не подбираются автоматически: кейсы каждый раз разные,
+   и «умная» подстановка создаёт ложное доверие. Специалист выбирает сам. */
+function clearRuleMap(r){ r.map={}; }
 function colOptions(si,sel){
   var s=S.sources[si]; if(!s)return '<option value="-1">—</option>';
   var h=s.rows[s.headerRow]||[],cols=0; s.rows.forEach(function(r){if(r.length>cols)cols=r.length;});
@@ -1033,6 +1006,9 @@ function bestSheet(exceptIdx){
 function matchInfo(r){
   var m=ruleMatch(r);
   if(!m)return '<span class="muted small">—</span>';
+  var chosen=Object.keys(r.map||{}).filter(function(k){return r.map[k]>=0;}).length;
+  if(!chosen) return '<div class="box info small" style="margin:0">Выбери ниже столбец со значением — '+
+    'после этого посчитаю, сколько кампаний правила есть в заливочном.</div>';
   var addable = S.exp && S.exp.mode==="budget";
   var cls = (m.withVal===0) ? "warn"
           : (m.valIn===m.withVal) ? "ok"
@@ -1087,7 +1063,7 @@ function renderRules(){
   host.querySelectorAll("[data-rm]").forEach(function(b){b.addEventListener("click",function(){
     S.rules.splice(+b.dataset.rm,1); renderRules(); renderMiss(); ready(); });});
   host.querySelectorAll("[data-sheet]").forEach(function(s){s.addEventListener("change",function(){
-    var r=S.rules[+s.dataset.sheet]; r.sheet=+s.value; r.name=S.sources[r.sheet].name; autoMapRule(r);
+    var r=S.rules[+s.dataset.sheet]; r.sheet=+s.value; r.name=S.sources[r.sheet].name; clearRuleMap(r);
     renderRules(); renderMiss(); ready(); });});
   host.querySelectorAll("[data-scope]").forEach(function(el){el.addEventListener("change",function(){
     var r=S.rules[+el.dataset.scope]; r.useScope=(el.value==="ids");
@@ -1102,7 +1078,7 @@ function renderRules(){
   host.querySelectorAll("[data-col]").forEach(function(s){s.addEventListener("change",function(){
     var p=s.dataset.col.split("|"),r=S.rules[+p[0]],v=+s.value;
     if(v<0)delete r.map[p[1]]; else r.map[p[1]]=v;
-    renderMiss(); ready(); });});
+    renderRules(); renderMiss(); ready(); });});
   // проставить info по ID
   S.rules.forEach(function(r,ri){
     var el=host.querySelector('[data-idsinfo="'+ri+'"]'); if(!el||!r.scopeIds.length)return;
@@ -1354,11 +1330,6 @@ if(_rt)_rt.addEventListener("click",async function(ev){
 
   /* подбор столбцов */
   var H=["Id кампании","Ставка b2b тек.","Ставка по чеку b2b","Ставка b2b НОВАЯ","Ветка b2b","Ср. чек b2b","Новая ставка Еком","Файл сейчас: b2b"];
-  eq("столбец b2b → НОВАЯ",Sheet.guessGoalCol(H,"357428649"),3);
-  eq("столбец еком → Новая",Sheet.guessGoalCol(H,"3000601598"),6);
-  eq("столбец b2c → нет",Sheet.guessGoalCol(H,"357428736"),-1);
-  eq("бюджет → Применяем",Sheet.guessBudgetCol(["Id","Бюджет","Новый бюджет по показателю","Новый бюджет Применяем"]),3);
-  eq("бюджет → «не меняем»",Sheet.guessBudgetCol(["Id","Название","Бюджет (не меняем)"]),2);
   eq("заголовок в 3-й строке",Sheet.findHeaderRow([["x"],["y"],["Id кампании","z"],["1","2"]]),2);
   eq("список ID",Sheet.parseIdList("800000021\n800000022\t97172495, 800000021").join(","),"800000021,800000022,97172495");
 

@@ -39,37 +39,13 @@ var Sheet=(function(){
       loginCol:colByName(h,/логин|аккаунт/i),nameCol:colByName(h,/название/i),stratCol:colByName(h,/стратег/i)};
   }
   /* приоритет: «НОВАЯ»/«Итоговая» ≫ «тек.»/«по чеку»/«Ветка»/«кэф»/«Δ» */
-  function guessGoalCol(header,goalId){
-    var keys=KW[goalId]||[],best=-1,bs=0;
-    for(var i=0;i<header.length;i++){
-      var s=String(header[i]||"").toLowerCase(),sc=0;
-      keys.forEach(function(k){ if(s.indexOf(k)>=0)sc+=2; });
-      if(sc===0)continue;
-      if(!/ставк|бюджет|cpa/.test(s))sc-=1;
-      if(/нов|итог/.test(s))sc+=3;
-      if(/тек\.|текущ|по чеку|ветка|кэф|коэф|δ|дельта|соотнош|доля|ср\. чек|файл сейчас/.test(s))sc-=5;
-      if(sc>bs){bs=sc;best=i;}
-    }
-    return bs>=4?best:-1;
-  }
-  function guessBudgetCol(header){
-    var best=-1,bs=0;
-    for(var i=0;i<header.length;i++){
-      var s=String(header[i]||"").toLowerCase(); if(s.indexOf("бюджет")<0)continue;
-      var sc=2; if(/нов|примен/.test(s))sc+=3;
-      if(/тек|прошл|показател|достаточн|минимальн|лимит|не меняем/.test(s))sc-=2;
-      if(/применяем|не меняем/.test(s))sc+=2;
-      if(sc>bs){bs=sc;best=i;}
-    }
-    return bs>=2?best:-1;
-  }
   function parseIdList(raw){
     var seen={},out=[];
     (String(raw||"").match(/\d{5,}/g)||[]).forEach(function(id){ if(!seen[id]){seen[id]=1;out.push(id);} });
     return out;
   }
   return {parseCsvGrid:parseCsvGrid,describe:describe,findHeaderRow:findHeaderRow,findIdCol:findIdCol,
-          colByName:colByName,guessGoalCol:guessGoalCol,guessBudgetCol:guessBudgetCol,parseIdList:parseIdList};
+          colByName:colByName,parseIdList:parseIdList};
 })();
 
 /* работает и в браузере, и в Node — ядро не зависит от DOM */
