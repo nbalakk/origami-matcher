@@ -23,6 +23,7 @@ MODULES = [
     "src/core/fmt.js",
     "src/core/export.js",
     "src/core/bank.js",
+    "src/core/campaigns.js",
     "src/core/sheet.js",
     "src/core/rules.js",
     "src/core/build.js",

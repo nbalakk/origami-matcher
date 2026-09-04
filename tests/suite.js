@@ -14,7 +14,7 @@
   /* модули берём из окружения: в Node их подкладывает раннер, в браузере — глобальные */
   function mods() {
     var g = (typeof globalThis !== "undefined" ? globalThis : this);
-    return {Fmt: g.Fmt, Exp: g.Exp, Bank: g.Bank, Sheet: g.Sheet, Rules: g.Rules,
+    return {Fmt: g.Fmt, Exp: g.Exp, Bank: g.Bank, Camps: g.Camps, Sheet: g.Sheet, Rules: g.Rules,
             Build: g.Build, Audit: g.Audit, Verify: g.Verify, Xlsx: g.Xlsx};
   }
 
@@ -22,7 +22,7 @@
     opts = opts || {};
     var withXlsx = opts.xlsx !== false && typeof CompressionStream !== "undefined";
     var M = mods();
-    var Fmt = M.Fmt, Exp = M.Exp, Bank = M.Bank, Accounts = M.Bank, Sheet = M.Sheet, Rules = M.Rules,
+    var Fmt = M.Fmt, Exp = M.Exp, Bank = M.Bank, Accounts = M.Bank, Camps = M.Camps, Sheet = M.Sheet, Rules = M.Rules,
         Build = M.Build, Audit = M.Audit, Verify = M.Verify, Xlsx = M.Xlsx;
 
   var L=[],ok=true,n=0;
@@ -252,6 +252,48 @@
     goals:[{id:"3000601598",label:"Другое имя"}]});
   eq("сверка: сменившийся AccountID замечен",chkBad.changedAccounts.length,1);
   eq("сверка: переименованная цель замечена",chkBad.changedGoals.length,1);
+
+  /* ── справочник кампаний ── */
+  eq("кампании: справочник заполнен",Camps.size>1000,true);
+  eq("кампании: незнакомую не выдумываем",Camps.get("999999999999"),null);
+  var anyCid=Object.keys(Camps.accounts).length&&"60227360";
+  var known=Camps.get(anyCid);
+  eq("кампании: запись читается",!!known,true);
+  eq("кампании: логин на месте",/^pro-vseinstrumenti/.test(known.login),true);
+  eq("кампании: размещение из двух вариантов",known.place==="поиск"||known.place==="сети",true);
+  eq("кампании: стратегия не пустая",known.strategy.length>5,true);
+  eq("кампании: цели массивом",Array.isArray(known.goals),true);
+  eq("кампании: описание одной строкой",Camps.describe(anyCid).indexOf(known.login),0);
+  eq("кампании: описание пустое для незнакомой",Camps.describe("999999999999"),"");
+
+  /* сверка снимка с выгрузкой */
+  var cmpSame=Camps.check(e);
+  eq("сверка кампаний: чужие РК видны как новые",cmpSame.added.length>0,true);
+  eq("сверка кампаний: ничего не правит молча",typeof cmpSame.ok,"boolean");
+  var oneLine=BOM+HDR+CL+
+    row(known.account,known.login,anyCid,known.name,known.place==="сети"?"Сеть":"Поиск",
+        known.strategy,known.goals[0]||"3000601598","Ecommerce: покупка","100")+CL;
+  var cmpOk=Camps.check(Exp.parse(oneLine));
+  eq("сверка кампаний: знакомая РК без расхождений по стратегии",
+     cmpOk.changed.filter(function(x){return x["что"]==="стратегия";}).length,0);
+  eq("сверка кампаний: знакомая РК без расхождений по размещению",
+     cmpOk.changed.filter(function(x){return x["что"]==="размещение";}).length,0);
+  var drift=BOM+HDR+CL+
+    row(known.account,known.login,anyCid,known.name,known.place==="сети"?"Поиск":"Сеть",
+        "Средняя цена клика","3000601598","Ecommerce: покупка","100")+CL;
+  var cmpBad=Camps.check(Exp.parse(drift));
+  eq("сверка кампаний: смена стратегии замечена",
+     cmpBad.changed.filter(function(x){return x["что"]==="стратегия";}).length,1);
+  eq("сверка кампаний: смена размещения замечена",
+     cmpBad.changed.filter(function(x){return x["что"]==="размещение";}).length,1);
+
+  /* справочник кампаний НЕ участвует в сборке строк */
+  var shKnown=Sheet.describe("f","S",[["Id кампании","Название","Логин","Бюджет"],[anyCid,"x","y","12345"]]);
+  var rKnown=Build.run({exp:be,sources:[shKnown],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:3}}],
+    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,spares:[]});
+  eq("справочник кампаний не строит строк",rKnown.stats.constructed,0);
+  eq("справочник кампаний: РК ушла на руки",rKnown.manual.length,1);
+  eq("на руки: подсказка из справочника заполнена",rKnown.manual[0].known.length>10,true);
 
   /* имя цели доезжает до списка на ручную работу */
   eq("на руки: цель названа, а не «Цель N»",/^Цель\s/.test(r7.manual[0].target),false);

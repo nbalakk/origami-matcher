@@ -8,7 +8,11 @@ var Build=(function(){
     var glabel=function(g){ var l=(exp.goals.filter(function(x){return x.id===g;})[0]||{}).label;
       return typeof Bank!=='undefined'?Bank.goal(g,l):(l||g); };
     var mrow=function(cid,target,value,reason){ var m=R.meta[cid]||{};
-      manual.push({cid:cid,login:m.login||'',name:m.name||'',target:target,value:value,reason:reason}); };
+      var known=typeof Camps!=='undefined'?Camps.get(cid):null;
+      manual.push({cid:cid,login:m.login||(known?known.login:''),name:m.name||(known?known.name:''),
+        target:target,value:value,reason:reason,
+        known:known?(known.login+' · '+known.place+' · '+known.strategy+
+          (known.goals.length?' · целей '+known.goals.length:' · целевых строк нет')):''}); };
     var scope=null;
     if(plan.scenario==="new"){ scope={}; R.campaigns.forEach(function(c){scope[c]=1;}); }
     var inScope=function(c){ return !scope||scope[c]===1; };

@@ -47,8 +47,16 @@ function bankNote(e){
     " ("+c.newGoals.map(function(x){return x.id+(x.label?" — "+x.label:"");}).join(", ")+")");
   if(c.changedGoals.length)d.push("цель переименована: "+
     c.changedGoals.map(function(x){return x.id+" «"+x.was+"» → «"+x.now+"»";}).join(", "));
+  var cc=(typeof Camps!=="undefined")?Camps.check(e):null;
+  if(cc){
+    if(cc.added.length)d.push("кампаний нет в справочнике: "+cc.added.length);
+    if(cc.changed.length){
+      var by={}; cc.changed.forEach(function(x){ by[x["что"]]=(by[x["что"]]||0)+1; });
+      d.push("изменилось у кампаний — "+Object.keys(by).map(function(k){return k+": "+by[k];}).join(", "));
+    }
+  }
   if(!d.length)return '<div class="box ok small">Справочник (' + c.updated +
-    ') сходится с этой выгрузкой: аккаунты и цели знакомы.</div>';
+    ') сходится с этой выгрузкой: аккаунты, цели и '+(cc?cc.seen:0)+' кампаний знакомы.</div>';
   return '<div class="box warn small"><b>Справочник разошёлся с выгрузкой</b> (сверен ' + c.updated +
     '):<br>' + d.map(esc).join("<br>") + '<br><span class="muted">На сборку не влияет — это повод обновить справочник.</span></div>';
 }
@@ -460,9 +468,9 @@ $("dlMan").addEventListener("click",function(){
   var risky=new RegExp('["' + ";" + CR + LF + ']');
   var q=function(v){ v=String(v==null?"":v);
     return risky.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
-  var L=["Id кампании;Логин;Название кампании;Что ставить;Значение;Почему не в файле"];
+  var L=["Id кампании;Логин;Название кампании;Что ставить;Значение;Почему не в файле;Что известно о РК"];
   m.forEach(function(x){
-    L.push([x.cid,x.login,x.name,x.target,x.value,x.reason].map(q).join(";")); });
+    L.push([x.cid,x.login,x.name,x.target,x.value,x.reason,x.known||""].map(q).join(";")); });
   download(BOM+L.join(CRLF)+CRLF,S.fileName.replace(/[.]csv$/,"")+"_НА-РУКИ.csv");
 });
 

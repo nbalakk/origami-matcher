@@ -10,7 +10,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
 
-const CORE = ["fmt", "export", "bank", "sheet", "rules", "build", "audit", "verify"];
+const CORE = ["fmt", "export", "bank", "campaigns", "sheet", "rules", "build", "audit", "verify"];
 
 for (const name of CORE) {
   const mod = require(path.join(__dirname, "..", "src", "core", `${name}.js`));
@@ -19,7 +19,7 @@ for (const name of CORE) {
 
 function exportName(file) {
   return {
-    fmt: "Fmt", export: "Exp", bank: "Bank", sheet: "Sheet", rules: "Rules",
+    fmt: "Fmt", export: "Exp", bank: "Bank", campaigns: "Camps", sheet: "Sheet", rules: "Rules",
     build: "Build", audit: "Audit", verify: "Verify",
   }[file];
 }
