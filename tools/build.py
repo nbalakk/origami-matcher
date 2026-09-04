@@ -28,7 +28,6 @@ MODULES = [
     "src/core/rules.js",
     "src/core/build.js",
     "src/core/audit.js",
-    "src/core/verify.js",
     "src/xlsx/reader.js",
     "src/ui/markup.js",
     "src/ui/app.js",

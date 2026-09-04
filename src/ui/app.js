@@ -1,9 +1,8 @@
 /* ══════════════════════════════════════════════════════════════════════════
    МОДУЛЬ 9 · UI
    ══════════════════════════════════════════════════════════════════════════ */
-var VERSION="v3.0";
-var S={exp:null,csvName:"",spares:[],sources:[],rules:[],result:null,audit:null,addMissing:false,
-        v1:null,v2:null,v2name:""};
+var VERSION="v4.0";
+var S={exp:null,csvName:"",spares:[],sources:[],rules:[],result:null,audit:null,addMissing:false};
 var $=function(i){return document.getElementById(i);};
 
 /* ── справочник аккаунтов ──────────────────────────────────────────────────
@@ -15,6 +14,14 @@ var ACC_KEY="origami-matcher.accounts";
 function accLoad(){ try{ return JSON.parse(localStorage.getItem(ACC_KEY)||"{}")||{}; }catch(e){ return {}; } }
 function accSave(o){ try{ localStorage.setItem(ACC_KEY,JSON.stringify(o)); }catch(e){} }
 function accLearn(pairs){ var o=Bank.merge(accLoad(),pairs); accSave(o); return o; }
+/* 1 проверка · 2 проверки · 5 проверок */
+function plural(n,one,few,many){
+  var a=Math.abs(n)%100,b=a%10;
+  if(a>10&&a<20)return many;
+  if(b>1&&b<5)return few;
+  if(b===1)return one;
+  return many;
+}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function show(id,on){ var el=$(id); if(el)el.classList.toggle("off",!on); }
 $("ver").textContent=VERSION;
@@ -22,7 +29,10 @@ $("ver").textContent=VERSION;
 document.querySelectorAll(".tab").forEach(function(t){
   t.addEventListener("click",function(){
     document.querySelectorAll(".tab").forEach(function(x){x.classList.toggle("on",x===t);});
-    ["build","verify","help"].forEach(function(n){ $("tab-"+n).classList.toggle("hide",n!==t.dataset.tab); });
+    /* список вкладок берём из самой разметки — добавил вкладку, ничего больше не правишь */
+    document.querySelectorAll("[data-tab]").forEach(function(x){
+      var pane=$("tab-"+x.dataset.tab);
+      if(pane)pane.classList.toggle("hide",x.dataset.tab!==t.dataset.tab); });
   });
 });
 function wireDrop(dropId,inputId,cb){
@@ -512,54 +522,6 @@ $("dlRep").addEventListener("click",function(){
   download(L.join("\n"),S.fileName.replace(/\.csv$/,"")+"_отчёт.txt");
 });
 
-/* ---------- вкладка «Проверка заливки» ---------- */
-wireDrop("dropV1","fileV1",function(files){
-  var file=files[0]; if(!file)return;
-  readText(file,function(t){
-    var e=Exp.parse(t);
-    if(!e.ok){ $("v1info").innerHTML='<div class="box err"><b>'+esc(file.name)+'</b> — не похоже на заливочный из Оригами.</div>'; return; }
-    S.v1=e;
-    $("v1info").innerHTML='<div class="box ok small"><b>'+esc(file.name)+'</b> · '+
-      (e.mode==="bids"?"ставки":"бюджеты")+' · строк '+e.rows.length+' · кампаний '+Object.keys(e.campaigns).length+'</div>';
-    $("goV").disabled=!(S.v1&&S.v2);
-  });
-});
-wireDrop("dropV2","fileV2",function(files){
-  var file=files[0]; if(!file)return;
-  S.v2name=file.name;
-  readText(file,function(t){
-    S.v2=t;
-    var n=t.split(new RegExp(String.fromCharCode(13)+"?"+String.fromCharCode(10)))
-            .filter(function(l){return l!=="";}).length-1;
-    $("v2info").innerHTML='<div class="box ok small"><b>'+esc(file.name)+'</b> · строк '+n+'</div>';
-    $("goV").disabled=!(S.v1&&S.v2);
-  });
-});
-$("goV").addEventListener("click",function(){
-  var r=Verify.compare(S.v1,S.v2);
-  var pct=r.total?Math.round(r.ok/r.total*100):0;
-  var h='<div class="stats" style="margin-top:10px">'+
-    '<div class="stat"><div class="n">'+r.total+'</div><div class="l">строк в залитом файле</div></div>'+
-    '<div class="stat"><div class="n">'+r.ok+'</div><div class="l">совпало со свежей выгрузкой</div></div>'+
-    '<div class="stat"><div class="n">'+r.bad.length+'</div><div class="l">НЕ встало</div></div>'+
-    '<div class="stat"><div class="n">'+r.absent.length+'</div><div class="l">нет в свежей выгрузке</div></div>'+
-    '<div class="stat"><div class="n">'+pct+'%</div><div class="l">применилось</div></div></div>';
-  h+='<div class="box '+(r.bad.length?'warn':'ok')+'"><b>'+(r.bad.length?
-      ('Не применилось строк: '+r.bad.length+'. Разбор ниже.'):'Все значения из файла совпадают со свежей выгрузкой — заливка прошла полностью.')+'</b></div>';
-  if(r.bad.length){
-    h+='<div class="prevwrap"><table><tr><th>Аккаунт</th><th>CampaignID</th><th>Кампания</th><th>Цель</th><th>заливали</th><th>сейчас</th></tr>'+
-      r.bad.slice(0,300).map(function(x){return '<tr class="chg"><td>'+esc(x.acc)+'</td><td>'+esc(x.cid)+'</td><td>'+esc(String(x.name).slice(0,38))+'</td><td>'+esc(String(x.goal).slice(0,26))+'</td><td>'+esc(x.want)+'</td><td><b>'+esc(x.got)+'</b></td></tr>';}).join("")+'</table></div>';
-  }
-  if(r.absent.length){
-    h+='<div class="box info small"><b>Нет в свежей выгрузке: '+r.absent.length+'</b><br>Такие строки нельзя проверить — кампания или цель отсутствует в новом экспорте.'+
-      '<details><summary>показать</summary><div class="maxh">'+r.absent.slice(0,200).map(function(x){return x.cid+" · "+x.goal+" (заливали "+x.want+")";}).map(esc).join("\n")+'</div></details></div>';
-  }
-  var accs=Object.keys(r.byAcc).sort();
-  h+='<details><summary>по аккаунтам</summary><table class="t"><tr><th>Аккаунт</th><th>совпало</th><th>не встало</th><th>нет в выгрузке</th></tr>'+
-    accs.map(function(a){var x=r.byAcc[a];return '<tr><td class="k">'+esc(a)+'</td><td>'+x.ok+'</td><td>'+x.bad+'</td><td>'+x.absent+'</td></tr>';}).join("")+'</table></details>';
-  $("vreport").innerHTML=h;
-});
-
 /* самопроверка ядра из подвала (набор — tests/suite.js) */
 var _rt=document.getElementById("runTests");
 if(_rt)_rt.addEventListener("click",async function(ev){
@@ -568,7 +530,7 @@ if(_rt)_rt.addEventListener("click",async function(ev){
   try{
     var r=await Suite.run();
     _rt.className="st "+(r.ok?"ok":"bad");
-    _rt.textContent=(r.ok?"✓ ядро исправно · ":"✕ есть падения · ")+r.count+" проверок";
+    _rt.textContent=(r.ok?"✓ ядро исправно · ":"✕ есть падения · ")+r.count+" "+plural(r.count,"проверка","проверки","проверок");
     _rt.title="Нажми ещё раз, чтобы посмотреть отчёт";
     _rt.onclick=function(e){ e.preventDefault(); alert(r.log); };
   }catch(e){

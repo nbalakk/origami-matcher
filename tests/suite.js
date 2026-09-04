@@ -15,7 +15,7 @@
   function mods() {
     var g = (typeof globalThis !== "undefined" ? globalThis : this);
     return {Fmt: g.Fmt, Exp: g.Exp, Bank: g.Bank, Camps: g.Camps, Sheet: g.Sheet, Rules: g.Rules,
-            Build: g.Build, Audit: g.Audit, Verify: g.Verify, Xlsx: g.Xlsx};
+            Build: g.Build, Audit: g.Audit, Xlsx: g.Xlsx};
   }
 
   async function run(opts) {
@@ -23,7 +23,7 @@
     var withXlsx = opts.xlsx !== false && typeof CompressionStream !== "undefined";
     var M = mods();
     var Fmt = M.Fmt, Exp = M.Exp, Bank = M.Bank, Accounts = M.Bank, Camps = M.Camps, Sheet = M.Sheet, Rules = M.Rules,
-        Build = M.Build, Audit = M.Audit, Verify = M.Verify, Xlsx = M.Xlsx;
+        Build = M.Build, Audit = M.Audit, Xlsx = M.Xlsx;
 
   var L=[],ok=true,n=0;
   var cases=[];
@@ -376,30 +376,6 @@
   eq("на руки: округляется в 0",r8.manual.filter(function(x){return /в 0/.test(x.reason);}).length,1);
   eq("на руки: нет ни в одной выгрузке",rb3.manual.filter(function(x){return /ни в одной/.test(x.reason);}).length,1);
   eq("на руки: цель названа по-человечески",r7.manual[0].target.length>4,true);
-
-  /* сверка заливки */
-  var fresh=Exp.parse(BOM+HDR+"\r\n"+
-    row("900101","acc-media","800000001","camp_a","Поиск","strat","357428649","B2B","102")+"\r\n"+
-    row("900101","acc-media","800000001","camp_a","Поиск","strat","357428736","B2C","68")+"\r\n");
-  var uploaded=BOM+HDR+"\r\n"+
-    row("900101","acc-media","800000001","camp_a","Поиск","strat","357428649","B2B","102")+"\r\n"+
-    row("900101","acc-media","800000001","camp_a","Поиск","strat","357428736","B2C","27")+"\r\n"+
-    row("900101","acc-media","999999999","camp_z","Поиск","strat","357428649","B2B","55")+"\r\n";
-  var v=Verify.compare(fresh,uploaded);
-  eq("сверка: совпало 1",v.ok,1);
-  eq("сверка: не встало 1",v.bad.length,1);
-  eq("сверка: нет в выгрузке 1",v.absent.length,1);
-  eq("сверка: показано что заливали",v.bad[0].want,"27");
-  eq("сверка: показано что сейчас",v.bad[0].got,"68");
-  eq("сверка: проценты сходятся",v.ok+v.bad.length+v.absent.length,v.total);
-  eq("сверка: разбивка по аккаунтам",v.byAcc["900101"].ok,1);
-  var vApp=Verify.compare(Exp.parse(BOM+HDR+CL+
-      row("900101","acc-media","800000001","camp_a","Поиск","strat","1900001695","Цель 1900001695","90")+CL),
-    BOM+HDR+CL+row("900101","acc-media","800000001","camp_a","Поиск","strat","1900001695","Цель 1900001695","93")+CL);
-  eq("сверка: цель названа по справочнику",vApp.bad[0].goal,"апп-андроид");
-  var vAll=Verify.compare(fresh,BOM+HDR+CL+
-    row("900101","acc-media","800000001","camp_a","Поиск","strat","357428649","B2B","102")+CL);
-  eq("сверка: всё встало",vAll.bad.length+vAll.absent.length,0);
 
   /* xlsx round-trip */
   if (withXlsx) {
