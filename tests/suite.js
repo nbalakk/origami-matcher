@@ -14,7 +14,7 @@
   /* модули берём из окружения: в Node их подкладывает раннер, в браузере — глобальные */
   function mods() {
     var g = (typeof globalThis !== "undefined" ? globalThis : this);
-    return {Fmt: g.Fmt, Exp: g.Exp, Sheet: g.Sheet, Rules: g.Rules,
+    return {Fmt: g.Fmt, Exp: g.Exp, Accounts: g.Accounts, Sheet: g.Sheet, Rules: g.Rules,
             Build: g.Build, Audit: g.Audit, Verify: g.Verify, Xlsx: g.Xlsx};
   }
 
@@ -22,7 +22,7 @@
     opts = opts || {};
     var withXlsx = opts.xlsx !== false && typeof CompressionStream !== "undefined";
     var M = mods();
-    var Fmt = M.Fmt, Exp = M.Exp, Sheet = M.Sheet, Rules = M.Rules,
+    var Fmt = M.Fmt, Exp = M.Exp, Accounts = M.Accounts, Sheet = M.Sheet, Rules = M.Rules,
         Build = M.Build, Audit = M.Audit, Verify = M.Verify, Xlsx = M.Xlsx;
 
   var L=[],ok=true,n=0;
@@ -79,7 +79,7 @@
   var sh=Sheet.describe("f","Остальные",[["Id кампании","Название","Логин","Ставка b2b НОВАЯ","Ставка b2c НОВАЯ"],
     ["800000001","camp_a","acc-media","102","27,4"]]);
   var base={exp:e,sources:[sh],rules:[{name:"R1",sheet:0,useScope:false,scopeIds:[],map:{"357428649":3,"357428736":4}}],
-    scenario:"update",onlyChanged:false,roundNew:true,roundAll:true,addMissing:false,accountOverrides:{},strategyFor:""};
+    scenario:"update",onlyChanged:false,roundNew:true,roundAll:true,addMissing:false};
   var r1=Build.run(base),l1=r1.text.slice(1).split("\r\n");
   eq("BOM",r1.text.charCodeAt(0),0xFEFF);
   eq("дополнить: все строки",r1.stats.rowsOut,5);
@@ -119,7 +119,7 @@
   var r4=Build.run({exp:e,sources:[shA,shB],
     rules:[{name:"ТОП-50",sheet:0,useScope:false,scopeIds:[],map:{"357428649":3}},
            {name:"B2C",sheet:1,useScope:false,scopeIds:[],map:{"3000601598":3}}],
-    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:false,accountOverrides:{},strategyFor:""});
+    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:false});
   eq("два правила: 2 кампании",r4.stats.campaigns,2);
   eq("два правила: b2b из листа А",r4.text.slice(1).split("\r\n")[1].split(";").pop(),"500");
   eq("два правила: ecom из листа Б",r4.text.slice(1).split("\r\n").filter(function(l){return l.indexOf("800000002")>=0;})[0].split(";").pop(),"250");
@@ -129,14 +129,14 @@
   var r5=Build.run({exp:e,sources:[shA,shC],
     rules:[{name:"A",sheet:0,useScope:false,scopeIds:[],map:{"357428649":3}},
            {name:"B",sheet:1,useScope:false,scopeIds:[],map:{"357428649":3}}],
-    scenario:"update",onlyChanged:false,roundNew:true,roundAll:true,addMissing:false,accountOverrides:{},strategyFor:""});
+    scenario:"update",onlyChanged:false,roundNew:true,roundAll:true,addMissing:false});
   eq("конфликт обнаружен",r5.issues.some(function(i){return /Конфликт правил/.test(i.title);}),true);
 
   /* КЛЮЧЕВОЕ: для ставок строки отсутствующим РК НЕ создаются */
   var shM=Sheet.describe("f","B2C",[["Id кампании","Название","Логин","Ставка CPA НОВАЯ"],
     ["800000013","b2c_dsa_new","demo-account-b2c","108"]]);
   var r6=Build.run({exp:e,sources:[shM],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{"3000601598":3}}],
-    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,accountOverrides:{},strategyFor:""});
+    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true});
   eq("ставки: строки НЕ созданы",r6.text.indexOf("800000013"),-1);
   eq("ставки: есть ошибка о перевыгрузке",r6.issues.some(function(i){return i.lvl==="err"&&/Нет в заливочном/.test(i.title);}),true);
   var a6=Audit.check(r6.text,e,r6.lut,{roundNew:true,addMissing:true});
@@ -169,34 +169,84 @@
     ["800000012","b2c_b","demo-account-b2c","без изменений"]]);
   var rb=Build.run({exp:be,sources:[bs1,bs2],
     rules:[{name:"A",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:3}},{name:"B",sheet:1,useScope:false,scopeIds:[],map:{BUDGET:3}}],
-    scenario:"new",onlyChanged:true,roundNew:true,roundAll:true,addMissing:false,accountOverrides:{},strategyFor:""});
+    scenario:"new",onlyChanged:true,roundNew:true,roundAll:true,addMissing:false});
   eq("бюджет: только изменённые = 1",rb.stats.rowsOut,1);
   eq("бюджет: 20000→30000",rb.text.slice(1).split("\r\n")[1].split(";").pop(),"30000");
   eq("«без изменений» не попал",rb.text.indexOf("800000012"),-1);
 
-  /* бюджет: достройка отсутствующей РК */
+  /* Достройка отсутствующей РК. Строку берём ТОЛЬКО из настоящей выгрузки:
+     аккаунт, размещение и стратегию из мастер-файла не вывести, а угаданную
+     строку Оригами отбивает вместе со всем файлом. */
+  var CL=String.fromCharCode(13,10);
+  function brow(acc,an,cid,nm,pl,st,v){
+    return '"=""'+acc+'""";'+an+';"=""'+cid+'""";'+nm+';'+pl+';"'+st+'";'+v; }
   var bs3=Sheet.describe("f","B2C",[["Id кампании","Название","Логин","Бюджет"],
     ["800000014","b2c_dsa_new","demo-account-b2c","14300"],["800000016","smart_net","demo-account-b2c","5000"]]);
-  var rb2=Build.run({exp:be,sources:[bs3],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:3}}],
-    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,accountOverrides:{},strategyFor:"Средняя цена конверсии"});
-  eq("бюджет: добавлено 2 строки",rb2.stats.constructed,2);
-  var added=rb2.text.slice(1).split("\r\n").filter(function(l){return l.indexOf("800000014")>=0;})[0];
-  eq("бюджет: 7 полей",Fmt.parseLine(added).length,7);
-  eq("бюджет: AccountID",Fmt.parseLine(added)[0],'="900102"');
-  eq("бюджет: размещение поиск",Fmt.parseLine(added)[4],"поиск");
-  var addedNet=rb2.text.slice(1).split("\r\n").filter(function(l){return l.indexOf("800000016")>=0;})[0];
-  eq("бюджет: smart_ → сети",Fmt.parseLine(addedNet)[4],"сети");
+  var planNo={exp:be,sources:[bs3],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:3}}],
+    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,spares:[]};
+  var rb2=Build.run(planNo);
+  eq("без запасной выгрузки ничего не достроено",rb2.stats.constructed,0);
+  eq("без запасной: ошибка о перевыгрузке",rb2.issues.some(function(i){return i.lvl==="err"&&/Нет в заливочном/.test(i.title);}),true);
+  eq("без запасной: обе РК ушли на руки",rb2.manual.length,2);
 
-  /* бюджет: неизвестный аккаунт (кейс autokat) */
+  /* запасная выгрузка: настоящие строки тех же кампаний */
+  var SPARE=BOM+BH+CL+
+    brow("900102","demo-account-b2c","800000014","b2c_dsa_new","поиск","Средняя цена конверсии","9000")+CL+
+    brow("900102","demo-account-b2c","800000016","smart_net","сети","Оптимизация конверсий, множественные цели","4000")+CL;
+  var spare=Exp.parse(SPARE); spare.name="выгрузка от 31.08";
+  var rb2b=Build.run(Object.assign({},planNo,{spares:[spare]}));
+  eq("из запасной достроено 2",rb2b.stats.constructed,2);
+  eq("из запасной: ничего не ушло на руки",rb2b.manual.length,0);
+  var addedS=rb2b.text.slice(1).split(CL).filter(function(l){return l.indexOf("800000014")>=0;})[0];
+  eq("из запасной: 7 полей",Fmt.parseLine(addedS).length,7);
+  eq("из запасной: AccountID настоящий",Fmt.parseLine(addedS)[0],'="900102"');
+  eq("из запасной: стратегия настоящая",Fmt.parseLine(addedS)[5],"Средняя цена конверсии");
+  eq("из запасной: новое значение",Fmt.parseLine(addedS)[6],"14300");
+  var addedN=rb2b.text.slice(1).split(CL).filter(function(l){return l.indexOf("800000016")>=0;})[0];
+  eq("из запасной: размещение не угадано",Fmt.parseLine(addedN)[4],"сети");
+  eq("из запасной: предупреждение о свежести",rb2b.issues.some(function(i){return /запасной выгрузки/.test(i.title);}),true);
+
+  /* кампании нет вообще нигде — строку не выдумываем */
   var bs4=Sheet.describe("f","S",[["Id кампании","Название","Логин","Бюджет"],["800000015","dsa_x","demo-account-new","22000"]]);
   var rb3=Build.run({exp:be,sources:[bs4],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:3}}],
-    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,accountOverrides:{},strategyFor:""});
-  eq("не добавлено без AccountID",rb3.stats.constructed,0);
-  eq("ошибка про AccountID",rb3.issues.some(function(i){return i.lvl==="err"&&/AccountID/.test(i.title);}),true);
-  var rb4=Build.run({exp:be,sources:[bs4],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:3}}],
-    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,
-    accountOverrides:{"demo-account-new":"900104"},strategyFor:""});
-  eq("с ручным AccountID — добавлено",rb4.stats.constructed,1);
+    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,spares:[spare]});
+  eq("нет нигде — не достроено",rb3.stats.constructed,0);
+  eq("нет нигде — выдуманных строк нет",rb3.text.indexOf("800000015"),-1);
+  eq("нет нигде — ушло на руки",rb3.manual.length,1);
+
+  /* ставки: строка цели из запасной выгрузки — настоящая, не выдуманная */
+  var SPB=BOM+HDR+CL+
+    row("900102","demo-account-b2c","800000013","b2c_dsa_new","Поиск","Средняя цена конверсии","3000601598","Ecommerce: покупка","95")+CL;
+  var spb=Exp.parse(SPB); spb.name="старая выгрузка ставок";
+  var r6b=Build.run({exp:e,sources:[shM],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{"3000601598":3}}],
+    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,spares:[spb]});
+  eq("ставки: строка взята из запасной",r6b.stats.constructed,1);
+  eq("ставки: цель не выдумана",Fmt.parseLine(r6b.text.slice(1).split(CL)[1])[6],'="3000601598"');
+
+  /* справочник аккаунтов: подсказка, а не источник правды */
+  eq("справочник: заполнен",Accounts.size>10,true);
+  eq("справочник: по логину",(Accounts.find("pro-vseinstrumenti-b2b",null,null)||{}).id,"336594");
+  eq("справочник: регистр не важен",(Accounts.find("PRO-VseInstrumenti-DSA",null,null)||{}).id,"336585");
+  eq("справочник: незнакомый логин",Accounts.find("нет-такого-логина",null,null),null);
+  eq("справочник: заливочный важнее",(Accounts.find("acc-dsa",be,null)||{}).src,"exp");
+  eq("справочник: выученное важнее книги",(Accounts.find("pro-vseinstrumenti-b2b",null,{"pro-vseinstrumenti-b2b":"111"})||{}).id,"111");
+  eq("справочник: пары из заливочного",Accounts.harvest(be)["acc-dsa"],"900103");
+
+  /* «только строки с новым значением» работает и в сценарии «дополнить» */
+  var rOc=Build.run(Object.assign({},base,{onlyChanged:true}));
+  eq("дополнить + только новые: строк",rOc.stats.rowsOut,2);
+  eq("дополнить + только новые: ничего не сохранено",rOc.stats.kept,0);
+  eq("дополнить + только новые: подставлено",rOc.stats.inserted,2);
+
+  /* список «сделать руками» — то, что заливочным не решается */
+  eq("на руки: пусто, когда всё легло",r1.manual.length,0);
+  eq("на руки: кампании нет ни в одной выгрузке",r6.manual.filter(function(x){return /ни в одной/.test(x.reason);}).length,1);
+  eq("на руки: значение сохранено",r6.manual[0].value,108);
+  eq("на руки: логин сохранён",r6.manual[0].login,"demo-account-b2c");
+  eq("на руки: нет такой цели",r7.manual.filter(function(x){return /нет такой цели/.test(x.reason);}).length,1);
+  eq("на руки: округляется в 0",r8.manual.filter(function(x){return /в 0/.test(x.reason);}).length,1);
+  eq("на руки: нет ни в одной выгрузке",rb3.manual.filter(function(x){return /ни в одной/.test(x.reason);}).length,1);
+  eq("на руки: цель названа по-человечески",r7.manual[0].target.length>4,true);
 
   /* сверка заливки */
   var fresh=Exp.parse(BOM+HDR+"\r\n"+

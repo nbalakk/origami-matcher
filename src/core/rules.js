@@ -4,7 +4,7 @@
 var Rules=(function(){
   /* rule = {name, sheet:idx, scopeIds:[], useScope:bool, map:{goalId|BUDGET:col}} */
   function resolve(exp,sources,rules,opts){
-    var lut={},src={},meta={},conflicts=[],skippedZero=0,scopeAll={};
+    var lut={},src={},meta={},conflicts=[],skippedZero=0,zeros=[],scopeAll={};
     rules.forEach(function(rule,ri){
       var sh=sources[rule.sheet]; if(!sh)return;
       /* считаем заново на каждый вызов: resolve дёргается и при отрисовке,
@@ -26,7 +26,7 @@ var Rules=(function(){
           var col=rule.map[key]; if(col===undefined||col<0)return;
           var raw=Fmt.num(row[col]); if(raw===null||raw<=0)return;
           var val=opts.roundNew?Fmt.roundHalfUp(raw):raw;
-          if(val<=0){skippedZero++;return;}
+          if(val<=0){skippedZero++;zeros.push({cid:cid,key:key,raw:raw});return;}
           var k=cid+"|"+key,prev=lut[k];
           if(prev!==undefined&&prev!==val)
             conflicts.push({cid:cid,key:key,a:prev,aRule:src[k],b:val,bRule:rule.name});
@@ -38,7 +38,7 @@ var Rules=(function(){
         rule.scopeIds.forEach(function(id){ if(!seenIds[id]) (rule.notOnSheet=rule.notOnSheet||[]).push(id); });
       }
     });
-    return {lut:lut,src:src,meta:meta,conflicts:conflicts,skippedZero:skippedZero,
+    return {lut:lut,src:src,meta:meta,conflicts:conflicts,skippedZero:skippedZero,zeros:zeros,
             campaigns:Object.keys(scopeAll)};
   }
   return {resolve:resolve};

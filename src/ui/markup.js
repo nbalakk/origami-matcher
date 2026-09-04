@@ -26,7 +26,7 @@ document.getElementById("app").innerHTML = `
       <span><b>Собрать новый заливочный</b><span class="t2">Только кампании из правил. Так делались файлы по ТОП-50 и B2C.</span></span></label>
     <div id="newOpts" class="hide">
       <hr class="sep">
-      <label class="opt"><input type="checkbox" id="onlyChanged"><span><b>Только строки с новым значением</b><span class="t2">Всё, что «без изменений», в файл не попадёт. Так делался бюджетный заливочный.</span></span></label>
+      <label class="opt"><input type="checkbox" id="onlyChanged"><span><b>Только строки с новым значением</b><span class="t2">В файл попадут только те строки, которым правило дало новое значение. Работает в обоих сценариях.</span></span></label>
     </div>
     <details style="margin-top:10px"><summary>Дополнительно — округление</summary>
       <p class="small muted" style="margin:6px 0 0">Значения и так округляются по правилам математики (0,5 → вверх);
@@ -40,6 +40,10 @@ document.getElementById("app").innerHTML = `
     <div id="dropCsv" class="drop">Перетащи <b>export_campaign_auto_strategy_*.csv</b><br><span class="small">ставки (goal_values) или бюджеты (weekly_budgets) — тип определится сам</span>
       <input id="fileCsv" type="file" accept=".csv" class="hide"></div>
     <div id="csvInfo"></div>
+    <div id="spareWrap" class="hide"><hr class="sep">
+      <div id="dropSpare" class="drop" style="padding:11px">Запасные выгрузки <span class="small">— необязательно</span><br><span class="small">если каких-то кампаний нет в основной, их настоящие строки возьмутся отсюда</span>
+        <input id="fileSpare" type="file" accept=".csv" multiple class="hide"></div>
+      <div id="spareInfo"></div></div>
   </div>
 
   <div class="card off" id="c2">
@@ -65,6 +69,7 @@ document.getElementById("app").innerHTML = `
       <button id="go" class="btn" disabled>Собрать и проверить</button>
       <button id="dl" class="btn sec hide">↓ Скачать заливочный</button>
       <button id="dlRep" class="btn sec hide">↓ Отчёт</button>
+      <button id="dlMan" class="btn sec hide">↓ Список на руки</button>
       <span id="status" class="small muted"></span>
     </div>
     <div id="report"></div>

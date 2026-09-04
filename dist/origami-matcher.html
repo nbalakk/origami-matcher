@@ -228,6 +228,82 @@ var Exp=(function(){
 /* работает и в браузере, и в Node — ядро не зависит от DOM */
 if (typeof module !== "undefined" && module.exports) module.exports = Exp;
 
+/* ---------- src/core/accounts.js ---------- */
+/* ══════════════════════════════════════════════════════════════════════════
+   МОДУЛЬ 2b · Accounts — справочник «логин → AccountID»
+
+   Нужен ровно для одного случая: собрать строку бюджета кампании, которой
+   нет в заливочном. Номер аккаунта не выводится из названия и не угадывается
+   по похожести — он либо есть в заливочном, либо в справочнике, либо его
+   вписывают руками. Иначе Оригами отобьёт файл.
+
+   Справочник ниже — то, что уже встречалось в выгрузках. Он не заменяет
+   заливочный, а только подставляет значение в поле: видно, откуда оно взято,
+   и его всегда можно перебить.
+   ══════════════════════════════════════════════════════════════════════════ */
+var Accounts=(function(){
+  var BOOK={
+    "pro-vseinstrumenti":"336570",
+    "pro-vseinstrumenti-ank":"336596",
+    "pro-vseinstrumenti-auto":"336576",
+    "pro-vseinstrumenti-auto-2":"336587",
+    "pro-vseinstrumenti-auto-rsya":"336577",
+    "pro-vseinstrumenti-b2b":"336594",
+    "pro-vseinstrumenti-b2c":"336595",
+    "pro-vseinstrumenti-centr":"336571",
+    "pro-vseinstrumenti-dsa":"336585",
+    "pro-vseinstrumenti-media":"336591",
+    "pro-vseinstrumenti-postavshik2":"336582",
+    "pro-vseinstrumenti-postavshik3":"336583",
+    "pro-vseinstrumenti-postavshiki":"336578",
+    "pro-vseinstrumenti-rivals":"336589",
+    "pro-vseinstrumenti-rsya2":"336581",
+    "pro-vseinstrumenti-sz":"336575",
+    "pro-vseinstrumenti-yug":"336572"
+  };
+
+  function norm(s){ return String(s==null?"":s).trim().toLowerCase(); }
+
+  /* Ищем номер аккаунта. Порядок важен: заливочный — источник правды,
+     всё остальное лишь подсказка. learned — пары, выученные из ранее
+     загруженных заливочных (их подкладывает интерфейс). */
+  function find(login,exp,learned){
+    var lg=norm(login);
+    if(!lg)return null;
+    var byExp=exp&&exp.accounts?exp.accounts[String(login).trim()]:null;
+    if(byExp)return {id:byExp,src:"exp",note:"из заливочного"};
+    if(learned&&learned[lg])return {id:learned[lg],src:"learned",note:"из прошлых заливочных"};
+    if(BOOK[lg])return {id:BOOK[lg],src:"book",note:"из справочника"};
+    return null;
+  }
+
+  /* Пары «логин → AccountID» из заливочного — чтобы запомнить их на будущее. */
+  function harvest(exp){
+    var out={};
+    if(exp&&exp.accounts)for(var k in exp.accounts){
+      var id=exp.accounts[k],lg=norm(k);
+      if(lg&&id)out[lg]=id;
+    }
+    return out;
+  }
+
+  function merge(a,b){
+    var out={},k;
+    for(k in (a||{}))out[k]=a[k];
+    for(k in (b||{}))out[k]=b[k];
+    return out;
+  }
+
+  function list(){
+    return Object.keys(BOOK).sort().map(function(k){return {login:k,id:BOOK[k]};});
+  }
+
+  return {find:find,harvest:harvest,merge:merge,list:list,size:Object.keys(BOOK).length};
+})();
+
+/* работает и в браузере, и в Node — ядро не зависит от DOM */
+if (typeof module !== "undefined" && module.exports) module.exports = Accounts;
+
 /* ---------- src/core/sheet.js ---------- */
 /* ══════════════════════════════════════════════════════════════════════════
    МОДУЛЬ 4 · Sheet — разметка листа мастер-отчёта
@@ -289,7 +365,7 @@ if (typeof module !== "undefined" && module.exports) module.exports = Sheet;
 var Rules=(function(){
   /* rule = {name, sheet:idx, scopeIds:[], useScope:bool, map:{goalId|BUDGET:col}} */
   function resolve(exp,sources,rules,opts){
-    var lut={},src={},meta={},conflicts=[],skippedZero=0,scopeAll={};
+    var lut={},src={},meta={},conflicts=[],skippedZero=0,zeros=[],scopeAll={};
     rules.forEach(function(rule,ri){
       var sh=sources[rule.sheet]; if(!sh)return;
       /* считаем заново на каждый вызов: resolve дёргается и при отрисовке,
@@ -311,7 +387,7 @@ var Rules=(function(){
           var col=rule.map[key]; if(col===undefined||col<0)return;
           var raw=Fmt.num(row[col]); if(raw===null||raw<=0)return;
           var val=opts.roundNew?Fmt.roundHalfUp(raw):raw;
-          if(val<=0){skippedZero++;return;}
+          if(val<=0){skippedZero++;zeros.push({cid:cid,key:key,raw:raw});return;}
           var k=cid+"|"+key,prev=lut[k];
           if(prev!==undefined&&prev!==val)
             conflicts.push({cid:cid,key:key,a:prev,aRule:src[k],b:val,bRule:rule.name});
@@ -323,7 +399,7 @@ var Rules=(function(){
         rule.scopeIds.forEach(function(id){ if(!seenIds[id]) (rule.notOnSheet=rule.notOnSheet||[]).push(id); });
       }
     });
-    return {lut:lut,src:src,meta:meta,conflicts:conflicts,skippedZero:skippedZero,
+    return {lut:lut,src:src,meta:meta,conflicts:conflicts,skippedZero:skippedZero,zeros:zeros,
             campaigns:Object.keys(scopeAll)};
   }
   return {resolve:resolve};
@@ -339,7 +415,10 @@ if (typeof module !== "undefined" && module.exports) module.exports = Rules;
 var Build=(function(){
   function run(plan){
     var exp=plan.exp,R=Rules.resolve(exp,plan.sources,plan.rules,plan),lut=R.lut;
-    var issues=[],preview=[],out=[exp.header];
+    var issues=[],preview=[],manual=[],out=[exp.header];
+    var glabel=function(g){ return (exp.goals.filter(function(x){return x.id===g;})[0]||{}).label||g; };
+    var mrow=function(cid,target,value,reason){ var m=R.meta[cid]||{};
+      manual.push({cid:cid,login:m.login||'',name:m.name||'',target:target,value:value,reason:reason}); };
     var scope=null;
     if(plan.scenario==="new"){ scope={}; R.campaigns.forEach(function(c){scope[c]=1;}); }
     var inScope=function(c){ return !scope||scope[c]===1; };
@@ -356,44 +435,76 @@ var Build=(function(){
         if(s!==sv.value){ nChg++; if(preview.length<80)preview.push({cid:r.cid,name:r.f[exp.C.campName],
           goal:exp.C.goalName>=0?r.f[exp.C.goalName]:"бюджет",was:sv.value,now:s,kind:"chg"}); }
       }else{
-        if(plan.scenario==="new"&&plan.onlyChanged)return;
+        if(plan.onlyChanged)return;   /* работает в обоих сценариях */
         var keep=sv.value;
         if(plan.roundAll){ var ov=Fmt.num(sv.value); if(ov!==null){ var rs=String(Fmt.roundHalfUp(ov)); if(rs!==sv.value)nRnd++; keep=rs; } }
         out.push(sv.prefix+";"+keep); nKeep++;
       }
     });
 
-    /* ---- кампании, которых нет в заливочном ---- */
+    /* ---- кампании, которых нет в заливочном ----------------------------
+       Строка собирается ТОЛЬКО из настоящей выгрузки: основной либо любой
+       другой, загруженной как запасная. Ни аккаунт, ни размещение, ни
+       стратегия не выводятся из названия — Оригами сверяет каждую строку
+       с фактической автостратегией и отбивает файл целиком при расхождении.
+       Чего нет ни в одной выгрузке — уходит в список на ручную работу. */
     var missing=R.campaigns.filter(function(c){ return !exp.campaigns[c] && Object.keys(lut).some(function(k){return k.indexOf(c+"|")===0;}); });
-    var constructed=0,blocked=[];
-    if(missing.length){
-      if(exp.mode==="bids"){
-        // НИКОГДА не создаём строки целей — цели кампании неизвестны
-        issues.push({lvl:"err",title:"Нет в заливочном: "+missing.length+" РК — значения НЕ попадут в файл",
-          note:"Для ставок строки таким кампаниям не создаются: какие цели у кампании — из отчёта не известно, а Оригами отбивает весь файл («цель не найдена в актуальной автостратегии»). Нужна перевыгрузка заливочного, чтобы эти РК в него попали.",
-          items:missing.map(function(c){
-            var vals=Object.keys(lut).filter(function(k){return k.indexOf(c+"|")===0;})
-              .map(function(k){var g=k.split("|")[1];var lb=(exp.goals.filter(function(x){return x.id===g;})[0]||{}).label||g;return lb+"="+lut[k];});
-            return c+"  "+((R.meta[c]||{}).name||"")+"   ["+vals.join("; ")+"]";})});
-      }else if(plan.addMissing){
-        missing.forEach(function(cid){
-          var m=R.meta[cid]||{},login=m.login||"";
-          var acc=(plan.accountOverrides&&plan.accountOverrides[login])||exp.accounts[login]||"";
-          if(!acc){ blocked.push(cid+"  ("+(login||"логин не указан")+")  "+(m.name||"")); return; }
-          var name=m.name||("Кампания "+cid);
-          var place=/^(smart_|rsya_)/i.test(name)?exp.place.net:exp.place.search;
-          var strat=plan.strategyFor||exp.strategyTop;
-          var f=[Fmt.idField(acc),Fmt.field(login),Fmt.idField(cid),Fmt.field(name),Fmt.field(place),Fmt.field(strat),
-                 Fmt.out(lut[cid+"|BUDGET"],plan.roundNew)];
-          out.push(f.join(";")); constructed++; applied[cid]=1;
-          if(preview.length<80)preview.push({cid:cid,name:name,goal:"бюджет",was:"—",now:f[6],kind:"new"});
+    var constructed=0,blocked=[],fromSpare=[];
+    function spareRow(cid,gid){
+      var list=plan.spares||[];
+      for(var i=0;i<list.length;i++){
+        var sp=list[i]; if(!sp||sp.mode!==exp.mode)continue;
+        var hit=null;
+        sp.rows.forEach(function(r){
+          if(hit)return;
+          if(r.cid!==cid)return;
+          if(exp.mode==="bids"&&String(r.gid)!==String(gid))return;
+          hit=r;
         });
-        if(blocked.length)issues.push({lvl:"err",title:"Не добавлены — неизвестен AccountID: "+blocked.length+" РК",
-          note:"Аккаунта нет в заливочном. Впиши числовой ID в шаге 4 или перевыгрузи заливочный с этим аккаунтом.",items:blocked});
-      }else{
-        issues.push({lvl:"warn",title:"Нет в заливочном: "+missing.length+" РК",
-          note:"Включи «Добавлять кампании, которых нет в заливочном», чтобы собрать для них строки.",
-          items:missing.map(function(c){return c+"  "+((R.meta[c]||{}).name||"");})});
+        if(hit)return {row:hit,name:sp.name||("выгрузка "+(i+1))};
+      }
+      return null;
+    }
+    if(missing.length){
+      missing.forEach(function(cid){
+        var keys=Object.keys(lut).filter(function(k){return k.indexOf(cid+"|")===0;});
+        var got=0;
+        if(plan.addMissing){
+          keys.forEach(function(k){
+            var gid=k.split("|")[1];
+            var sp=spareRow(cid,exp.mode==="bids"?gid:null);
+            if(!sp)return;
+            var sv=Fmt.splitVal(sp.row.line);
+            out.push(sv.prefix+";"+Fmt.out(lut[k],plan.roundNew));
+            constructed++; got++; applied[cid]=1; pairsDone[k]=1;
+            if(fromSpare.indexOf(sp.name)<0)fromSpare.push(sp.name);
+            if(preview.length<80)preview.push({cid:cid,name:(R.meta[cid]||{}).name||"",
+              goal:exp.mode==="bids"?glabel(gid):"бюджет",was:"—",now:Fmt.out(lut[k],plan.roundNew),kind:"new"});
+          });
+        }
+        if(got===keys.length)return;
+        blocked.push(cid+"  "+((R.meta[cid]||{}).login||"")+"  "+((R.meta[cid]||{}).name||""));
+        keys.forEach(function(k){
+          if(pairsDone[k])return;
+          mrow(cid,exp.mode==="bids"?glabel(k.split("|")[1]):"бюджет",lut[k],
+               plan.addMissing?"нет ни в одной загруженной выгрузке":"кампании нет в заливочном");
+        });
+      });
+      if(constructed)issues.push({lvl:"warn",title:"Строки взяты из запасной выгрузки: "+constructed,
+        note:"Аккаунт, размещение и стратегия у них настоящие — из "+fromSpare.join(", ")+
+             ". Но эта выгрузка может быть старше основной: если у кампании с тех пор сменили автостратегию, Оригами отобьёт весь файл. Надёжнее перевыгрузить заливочный так, чтобы эти кампании попали в него сами.",items:[]});
+      if(blocked.length){
+        var acc={};
+        missing.forEach(function(c){ var lg=(R.meta[c]||{}).login||""; if(lg)acc[lg]=1; });
+        var hint=Object.keys(acc).map(function(lg){
+          var f=typeof Accounts!=="undefined"?Accounts.find(lg,exp,plan.accountBook):null;
+          return lg+(f?" ("+f.id+")":"");}).join(", ");
+        issues.push({lvl:"err",title:"Нет в заливочном: "+blocked.length+" РК — значения НЕ попадут в файл",
+          note:(exp.mode==="bids"
+            ? "Строки целей таким кампаниям не создаются: какие цели подключены — из мастер-файла не известно, а Оригами отбивает весь файл при несовпадении с автостратегией. "
+            : "Строка не собирается: аккаунт, размещение и стратегия кампании из мастер-файла не известны, а угаданные Оригами отобьёт. ")+
+            "Нужна перевыгрузка"+(hint?" по аккаунтам: "+hint:"")+" — либо загрузи запасную выгрузку, где эти кампании есть.",
+          items:blocked});
       }
     }
 
@@ -405,6 +516,7 @@ var Build=(function(){
         if(!exp.campaigns[cid]||!inScope(cid)||pairsDone[k])return;
         var lb=(exp.goals.filter(function(x){return x.id===gid;})[0]||{}).label||gid;
         noRow.push(cid+"  ·  "+lb+" = "+lut[k]);
+        mrow(cid,lb,lut[k],"у кампании нет такой цели в заливочном");
       });
       if(noRow.length)issues.push({lvl:"warn",title:"У кампании нет такой цели в заливочном: "+noRow.length+" значений",
         note:"Строки для этих целей в заливочном отсутствуют — ставку положить некуда. Так бывает, когда цель не подключена к автостратегии кампании.",items:noRow});
@@ -433,12 +545,14 @@ var Build=(function(){
                    ? " Совпадения есть, но ни у одной кампании нет нового значения — выключи «Только строки с новым значением» или проверь выбранный столбец."
                    : " Проверь выбранный столбец со значениями.")),items:[]});
     }
+    (R.zeros||[]).forEach(function(z){ if(inScope(z.cid))
+      mrow(z.cid,z.key==="BUDGET"?"бюджет":glabel(z.key),z.raw,"округляется в 0 — целым не поставить"); });
     if(R.skippedZero)issues.push({lvl:"info",title:"Пропущено значений, округляющихся в 0: "+R.skippedZero,
       note:"Например 0,38 → 0. Такие значения не проставляются — строка остаётся с прежним.",items:[]});
 
     var text="﻿"+out.join(exp.eol)+exp.eol;
     var campSet={}; out.slice(1).forEach(function(l){ campSet[Fmt.digits(Fmt.parseLine(l)[exp.C.camp]||"")]=1; });
-    return {text:text,issues:issues,preview:preview,lut:lut,meta:R.meta,
+    return {text:text,issues:issues,preview:preview,manual:manual,lut:lut,meta:R.meta,
       stats:{rowsIn:exp.rows.length,rowsOut:out.length-1,campaigns:Object.keys(campSet).length,
         inserted:nIns,changed:nChg,kept:nKeep,rounded:nRnd,constructed:constructed,
         sourceCampaigns:R.campaigns.length,missing:missing.length}};
@@ -660,7 +774,7 @@ document.getElementById("app").innerHTML = `
       <span><b>Собрать новый заливочный</b><span class="t2">Только кампании из правил. Так делались файлы по ТОП-50 и B2C.</span></span></label>
     <div id="newOpts" class="hide">
       <hr class="sep">
-      <label class="opt"><input type="checkbox" id="onlyChanged"><span><b>Только строки с новым значением</b><span class="t2">Всё, что «без изменений», в файл не попадёт. Так делался бюджетный заливочный.</span></span></label>
+      <label class="opt"><input type="checkbox" id="onlyChanged"><span><b>Только строки с новым значением</b><span class="t2">В файл попадут только те строки, которым правило дало новое значение. Работает в обоих сценариях.</span></span></label>
     </div>
     <details style="margin-top:10px"><summary>Дополнительно — округление</summary>
       <p class="small muted" style="margin:6px 0 0">Значения и так округляются по правилам математики (0,5 → вверх);
@@ -674,6 +788,10 @@ document.getElementById("app").innerHTML = `
     <div id="dropCsv" class="drop">Перетащи <b>export_campaign_auto_strategy_*.csv</b><br><span class="small">ставки (goal_values) или бюджеты (weekly_budgets) — тип определится сам</span>
       <input id="fileCsv" type="file" accept=".csv" class="hide"></div>
     <div id="csvInfo"></div>
+    <div id="spareWrap" class="hide"><hr class="sep">
+      <div id="dropSpare" class="drop" style="padding:11px">Запасные выгрузки <span class="small">— необязательно</span><br><span class="small">если каких-то кампаний нет в основной, их настоящие строки возьмутся отсюда</span>
+        <input id="fileSpare" type="file" accept=".csv" multiple class="hide"></div>
+      <div id="spareInfo"></div></div>
   </div>
 
   <div class="card off" id="c2">
@@ -699,6 +817,7 @@ document.getElementById("app").innerHTML = `
       <button id="go" class="btn" disabled>Собрать и проверить</button>
       <button id="dl" class="btn sec hide">↓ Скачать заливочный</button>
       <button id="dlRep" class="btn sec hide">↓ Отчёт</button>
+      <button id="dlMan" class="btn sec hide">↓ Список на руки</button>
       <span id="status" class="small muted"></span>
     </div>
     <div id="report"></div>
@@ -825,9 +944,19 @@ document.getElementById("app").innerHTML = `
    МОДУЛЬ 9 · UI
    ══════════════════════════════════════════════════════════════════════════ */
 var VERSION="v3.0";
-var S={exp:null,csvName:"",sources:[],rules:[],scenario:"update",result:null,audit:null,addMissing:false,
+var S={exp:null,csvName:"",spares:[],sources:[],rules:[],scenario:"update",result:null,audit:null,addMissing:false,
         v1:null,v2:null,v2name:""};
 var $=function(i){return document.getElementById(i);};
+
+/* ── справочник аккаунтов ──────────────────────────────────────────────────
+   Логин → AccountID. Нужен, только когда собираем строку бюджета кампании,
+   которой нет в заливочном. Номер подставляется в поле, но всегда видно,
+   откуда он взялся, и его можно перебить руками. Пары из каждого
+   загруженного заливочного запоминаются — справочник растёт сам. */
+var ACC_KEY="origami-matcher.accounts";
+function accLoad(){ try{ return JSON.parse(localStorage.getItem(ACC_KEY)||"{}")||{}; }catch(e){ return {}; } }
+function accSave(o){ try{ localStorage.setItem(ACC_KEY,JSON.stringify(o)); }catch(e){} }
+function accLearn(pairs){ var o=Accounts.merge(accLoad(),pairs); accSave(o); return o; }
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function show(id,on){ $(id).classList.toggle("off",!on); }
 $("ver").textContent=VERSION;
@@ -849,16 +978,42 @@ function wireDrop(dropId,inputId,cb){
 function readText(file,cb){ var r=new FileReader(); r.onload=function(){cb(r.result);}; r.readAsText(file,"utf-8"); }
 
 /* ---------- шаг 1 ---------- */
+/* Запасные выгрузки. Нужны, когда часть кампаний не попала в основную:
+   их настоящие строки берутся отсюда, а не собираются по догадке. */
+function renderSpares(){
+  var box=$("spareInfo"); if(!box)return;
+  box.innerHTML=S.spares.map(function(sp,i){
+    return '<div class="fitem"><span><b>'+esc(sp.name)+'</b> <span class="muted">· '+
+      (sp.mode==="bids"?"ставки":"бюджеты")+' · кампаний '+Object.keys(sp.campaigns).length+'</span></span>'+
+      '<button class="rmv" data-spare="'+i+'">убрать</button></div>';}).join("");
+  box.querySelectorAll("[data-spare]").forEach(function(b){b.addEventListener("click",function(){
+    S.spares.splice(+this.dataset.spare,1); renderSpares(); renderMiss(); ready();});});
+}
+wireDrop("dropSpare","fileSpare",function(files){
+  if(!S.exp){ return; }
+  var left=files.length;
+  Array.prototype.forEach.call(files,function(f){
+    readText(f,function(txt){
+      var e=Exp.parse(txt);
+      if(e.ok&&e.mode===S.exp.mode){ e.name=f.name; S.spares.push(e); accLearn(Accounts.harvest(e)); }
+      else { $("spareInfo").insertAdjacentHTML("beforeend",
+        '<div class="box err small">'+esc(f.name)+' — не подходит: нужен заливочный того же типа ('+
+        (S.exp.mode==="bids"?"ставки":"бюджеты")+').</div>'); }
+      if(!--left){ renderSpares(); renderMiss(); ready(); }
+    });
+  });
+});
 wireDrop("dropCsv","fileCsv",function(files){
   var file=files[0]; if(!file)return; S.csvName=file.name;
   readText(file,function(txt){
     var e=Exp.parse(txt);
     if(!e.ok){ $("csvInfo").innerHTML='<div class="box err">Нет колонки <b>CampaignID</b> — это точно заливочный из Оригами?</div>'; return; }
-    S.exp=e; S.rules=[];
+    S.exp=e; S.rules=[]; accLearn(Accounts.harvest(e));
     $("csvInfo").innerHTML='<div class="box ok"><b>'+esc(file.name)+'</b><br><span class="pill">'+
       (e.mode==="bids"?"Ставки по целям":"Недельные бюджеты")+'</span> · строк <b>'+e.rows.length+'</b> · кампаний <b>'+
       Object.keys(e.campaigns).length+'</b>'+(e.mode==="bids"?' · целей <b>'+e.goals.length+'</b>':'')+
       ' · аккаунтов <b>'+Object.keys(e.accounts).length+'</b></div>';
+    $("spareWrap").classList.remove("hide");
     show("c2",true); show("c3",true); show("c4",true); show("c5",true);
     if(S.sources.length&&!S.rules.length)addRule();
     renderRules(); renderMiss(); ready();
@@ -1113,10 +1268,9 @@ document.querySelectorAll('input[name=scn]').forEach(function(r){r.addEventListe
 
 function plan(){
   return {exp:S.exp,sources:S.sources,rules:S.rules,scenario:S.scenario,
+    spares:S.spares,accountBook:accLoad(),
     onlyChanged:$("onlyChanged").checked,roundNew:$("roundNew").checked,roundAll:$("roundAll").checked,
-    addMissing:!!S.addMissing,
-    accountOverrides:(function(){var o={};document.querySelectorAll("[data-ovr]").forEach(function(i){var v=Fmt.digits(i.value);if(v)o[i.dataset.ovr]=v;});return o;})(),
-    strategyFor:$("stratSel")?$("stratSel").value:(S.exp?S.exp.strategyTop:"")};
+    addMissing:!!S.addMissing};
 }
 function renderMiss(){
   var el=$("missBlock"); if(!S.exp||!S.rules.length){el.innerHTML="";return;}
@@ -1127,7 +1281,7 @@ function renderMiss(){
     el.innerHTML='<div class="box err small" style="margin-top:12px"><b>'+missing.length+' кампаний нет в заливочном.</b> Для ставок строки им не создаются — цели кампании неизвестны, Оригами отбил бы весь файл. После сборки покажу список: их нужно добрать перевыгрузкой.</div>';
     return;
   }
-  var h='<hr class="sep"><label class="opt"><input type="checkbox" id="addMissing"'+(S.addMissing?' checked':'')+'><span><b>Добавлять кампании, которых нет в заливочном</b><span class="t2">'+missing.length+' РК. Строки соберутся заново: аккаунт по логину, размещение по названию.</span></span></label><div id="missCfg"></div>';
+  var h='<hr class="sep"><label class="opt"><input type="checkbox" id="addMissing"'+(S.addMissing?' checked':'')+'><span><b>Добавлять кампании, которых нет в заливочном</b><span class="t2">'+missing.length+' РК. Их настоящие строки возьмутся из запасных выгрузок. Ничего не выдумывается: чего нет ни в одной выгрузке — уйдёт в список на ручную работу.</span></span></label><div id="missCfg"></div>';
   el.innerHTML=h;
   $("addMissing").addEventListener("change",function(){ S.addMissing=this.checked; renderMissCfg(missing,R); renderRules(); ready(); });
   renderMissCfg(missing,R);
@@ -1135,25 +1289,37 @@ function renderMiss(){
 function renderMissCfg(missing,R){
   var box=$("missCfg"); if(!box)return;
   if(!S.addMissing){ box.innerHTML=""; return; }
-  var unknown={};
-  missing.forEach(function(c){ var lg=(R.meta[c]||{}).login||""; if(!S.exp.accounts[lg])unknown[lg]=(unknown[lg]||0)+1; });
-  var h='<table class="t"><tr><th style="width:40%">Стратегия для новых строк</th><td><select id="stratSel">'+
-    S.exp.strategies.map(function(s){return '<option value="'+esc(s)+'">'+esc(s)+'</option>';}).join("")+'</select></td></tr></table>';
-  var uk=Object.keys(unknown);
-  if(uk.length){
-    h+='<div class="box err small"><b>Нужен AccountID</b> — этих аккаунтов нет в заливочном, без номера строки не создадутся.</div><table class="t">'+
-      uk.map(function(lg){return '<tr><td class="k">'+esc(lg||"(логин не указан)")+' <span class="muted small">· '+unknown[lg]+' РК</span></td><td style="width:38%"><input type="text" data-ovr="'+esc(lg)+'" placeholder="например 900102"></td></tr>';}).join("")+'</table>';
+  /* Строку берём только из настоящей выгрузки. Считаем, для скольких
+     кампаний она найдётся в запасных, а для скольких — нет. */
+  var have=[],lack=[],accs={};
+  missing.forEach(function(cid){
+    var found=S.spares.some(function(sp){
+      return sp.mode===S.exp.mode&&sp.rows.some(function(r){return r.cid===cid;});});
+    (found?have:lack).push(cid);
+    var lg=(R.meta[cid]||{}).login||""; if(lg&&!found)accs[lg]=(accs[lg]||0)+1;
+  });
+  var h="";
+  if(have.length)h+='<div class="box ok small">Строки найдутся в запасных выгрузках: <b>'+have.length+
+    '</b> РК. Аккаунт, размещение и стратегия у них настоящие.</div>';
+  if(lack.length){
+    h+='<div class="box err small"><b>Не собрать: '+lack.length+' РК.</b> Их нет ни в основной выгрузке, '+
+       'ни в запасных. Аккаунт, размещение и стратегию из мастер-файла не вывести, а угаданную строку '+
+       'Оригами отобьёт вместе со всем файлом — поэтому такие РК уходят в список на ручную работу.</div>';
+    var lg=Object.keys(accs);
+    if(lg.length)h+='<div class="small muted" style="margin-top:6px">Перевыгрузить заливочный по аккаунтам:</div><table class="t">'+
+      lg.map(function(x){ var f=Accounts.find(x,S.exp,accLoad());
+        return '<tr><td class="k">'+esc(x)+' <span class="muted small">· '+accs[x]+' РК</span></td>'+
+               '<td style="width:34%">'+(f?'AccountID <b>'+esc(f.id)+'</b> <span class="muted small">'+esc(f.note)+'</span>':
+               '<span class="muted small">AccountID неизвестен</span>')+'</td></tr>';}).join("")+'</table>';
   }
   box.innerHTML=h;
-  box.querySelectorAll("[data-ovr]").forEach(function(i){i.addEventListener("input",function(){
-    ready();
-  });});
 }
 
 /* ---------- шаг 5 ---------- */
 function ready(){
   var ok=S.exp&&S.rules.length&&S.rules.some(function(r){return Object.keys(r.map).length>0;});
-  $("go").disabled=!ok; $("dl").classList.add("hide"); $("dlRep").classList.add("hide"); $("status").textContent="";
+  $("go").disabled=!ok; $("dl").classList.add("hide"); $("dlRep").classList.add("hide");
+  $("dlMan").classList.add("hide"); $("status").textContent="";
 }
 $("go").addEventListener("click",function(){
   var p=plan(),res=Build.run(p);
@@ -1193,6 +1359,7 @@ $("go").addEventListener("click",function(){
   }
   S.fileName=S.csvName.replace(/\.csv$/i,"")+(bids?"_СТАВКИ":"_БЮДЖЕТ")+(S.scenario==="new"?"_НОВЫЙ":"")+".csv";
   $("dl").classList.remove("hide"); $("dlRep").classList.remove("hide");
+  $("dlMan").classList.toggle("hide",!(res.manual&&res.manual.length));
   $("status").textContent=fail?"⚠ есть провалы проверки":"Готово · "+S.fileName;
 });
 function download(text,name){
@@ -1202,6 +1369,22 @@ function download(text,name){
   setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
 }
 $("dl").addEventListener("click",function(){ if(S.result)download(S.result.text,S.fileName); });
+/* Что заливочным не решается: строки, которых в нём нет, цели, которых нет
+   у кампании, и значения, округляющиеся в ноль. Такое ставят руками, поэтому
+   отдаём отдельным CSV — иначе список приходится выписывать вручную. */
+$("dlMan").addEventListener("click",function(){
+  var m=S.result&&S.result.manual; if(!m||!m.length)return;
+  var CR=String.fromCharCode(13),LF=String.fromCharCode(10);
+  var CRLF=CR+LF,BOM=String.fromCharCode(0xFEFF);
+  var risky=new RegExp('["' + ";" + CR + LF + ']');
+  var q=function(v){ v=String(v==null?"":v);
+    return risky.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  var L=["Id кампании;Логин;Название кампании;Что ставить;Значение;Почему не в файле"];
+  m.forEach(function(x){
+    L.push([x.cid,x.login,x.name,x.target,x.value,x.reason].map(q).join(";")); });
+  download(BOM+L.join(CRLF)+CRLF,S.fileName.replace(/[.]csv$/,"")+"_НА-РУКИ.csv");
+});
+
 $("dlRep").addEventListener("click",function(){
   if(!S.result)return;
   var st=S.result.stats,L=[];
@@ -1300,7 +1483,7 @@ if(_rt)_rt.addEventListener("click",async function(ev){
   /* модули берём из окружения: в Node их подкладывает раннер, в браузере — глобальные */
   function mods() {
     var g = (typeof globalThis !== "undefined" ? globalThis : this);
-    return {Fmt: g.Fmt, Exp: g.Exp, Sheet: g.Sheet, Rules: g.Rules,
+    return {Fmt: g.Fmt, Exp: g.Exp, Accounts: g.Accounts, Sheet: g.Sheet, Rules: g.Rules,
             Build: g.Build, Audit: g.Audit, Verify: g.Verify, Xlsx: g.Xlsx};
   }
 
@@ -1308,7 +1491,7 @@ if(_rt)_rt.addEventListener("click",async function(ev){
     opts = opts || {};
     var withXlsx = opts.xlsx !== false && typeof CompressionStream !== "undefined";
     var M = mods();
-    var Fmt = M.Fmt, Exp = M.Exp, Sheet = M.Sheet, Rules = M.Rules,
+    var Fmt = M.Fmt, Exp = M.Exp, Accounts = M.Accounts, Sheet = M.Sheet, Rules = M.Rules,
         Build = M.Build, Audit = M.Audit, Verify = M.Verify, Xlsx = M.Xlsx;
 
   var L=[],ok=true,n=0;
@@ -1365,7 +1548,7 @@ if(_rt)_rt.addEventListener("click",async function(ev){
   var sh=Sheet.describe("f","Остальные",[["Id кампании","Название","Логин","Ставка b2b НОВАЯ","Ставка b2c НОВАЯ"],
     ["800000001","camp_a","acc-media","102","27,4"]]);
   var base={exp:e,sources:[sh],rules:[{name:"R1",sheet:0,useScope:false,scopeIds:[],map:{"357428649":3,"357428736":4}}],
-    scenario:"update",onlyChanged:false,roundNew:true,roundAll:true,addMissing:false,accountOverrides:{},strategyFor:""};
+    scenario:"update",onlyChanged:false,roundNew:true,roundAll:true,addMissing:false};
   var r1=Build.run(base),l1=r1.text.slice(1).split("\r\n");
   eq("BOM",r1.text.charCodeAt(0),0xFEFF);
   eq("дополнить: все строки",r1.stats.rowsOut,5);
@@ -1405,7 +1588,7 @@ if(_rt)_rt.addEventListener("click",async function(ev){
   var r4=Build.run({exp:e,sources:[shA,shB],
     rules:[{name:"ТОП-50",sheet:0,useScope:false,scopeIds:[],map:{"357428649":3}},
            {name:"B2C",sheet:1,useScope:false,scopeIds:[],map:{"3000601598":3}}],
-    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:false,accountOverrides:{},strategyFor:""});
+    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:false});
   eq("два правила: 2 кампании",r4.stats.campaigns,2);
   eq("два правила: b2b из листа А",r4.text.slice(1).split("\r\n")[1].split(";").pop(),"500");
   eq("два правила: ecom из листа Б",r4.text.slice(1).split("\r\n").filter(function(l){return l.indexOf("800000002")>=0;})[0].split(";").pop(),"250");
@@ -1415,14 +1598,14 @@ if(_rt)_rt.addEventListener("click",async function(ev){
   var r5=Build.run({exp:e,sources:[shA,shC],
     rules:[{name:"A",sheet:0,useScope:false,scopeIds:[],map:{"357428649":3}},
            {name:"B",sheet:1,useScope:false,scopeIds:[],map:{"357428649":3}}],
-    scenario:"update",onlyChanged:false,roundNew:true,roundAll:true,addMissing:false,accountOverrides:{},strategyFor:""});
+    scenario:"update",onlyChanged:false,roundNew:true,roundAll:true,addMissing:false});
   eq("конфликт обнаружен",r5.issues.some(function(i){return /Конфликт правил/.test(i.title);}),true);
 
   /* КЛЮЧЕВОЕ: для ставок строки отсутствующим РК НЕ создаются */
   var shM=Sheet.describe("f","B2C",[["Id кампании","Название","Логин","Ставка CPA НОВАЯ"],
     ["800000013","b2c_dsa_new","demo-account-b2c","108"]]);
   var r6=Build.run({exp:e,sources:[shM],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{"3000601598":3}}],
-    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,accountOverrides:{},strategyFor:""});
+    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true});
   eq("ставки: строки НЕ созданы",r6.text.indexOf("800000013"),-1);
   eq("ставки: есть ошибка о перевыгрузке",r6.issues.some(function(i){return i.lvl==="err"&&/Нет в заливочном/.test(i.title);}),true);
   var a6=Audit.check(r6.text,e,r6.lut,{roundNew:true,addMissing:true});
@@ -1455,34 +1638,84 @@ if(_rt)_rt.addEventListener("click",async function(ev){
     ["800000012","b2c_b","demo-account-b2c","без изменений"]]);
   var rb=Build.run({exp:be,sources:[bs1,bs2],
     rules:[{name:"A",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:3}},{name:"B",sheet:1,useScope:false,scopeIds:[],map:{BUDGET:3}}],
-    scenario:"new",onlyChanged:true,roundNew:true,roundAll:true,addMissing:false,accountOverrides:{},strategyFor:""});
+    scenario:"new",onlyChanged:true,roundNew:true,roundAll:true,addMissing:false});
   eq("бюджет: только изменённые = 1",rb.stats.rowsOut,1);
   eq("бюджет: 20000→30000",rb.text.slice(1).split("\r\n")[1].split(";").pop(),"30000");
   eq("«без изменений» не попал",rb.text.indexOf("800000012"),-1);
 
-  /* бюджет: достройка отсутствующей РК */
+  /* Достройка отсутствующей РК. Строку берём ТОЛЬКО из настоящей выгрузки:
+     аккаунт, размещение и стратегию из мастер-файла не вывести, а угаданную
+     строку Оригами отбивает вместе со всем файлом. */
+  var CL=String.fromCharCode(13,10);
+  function brow(acc,an,cid,nm,pl,st,v){
+    return '"=""'+acc+'""";'+an+';"=""'+cid+'""";'+nm+';'+pl+';"'+st+'";'+v; }
   var bs3=Sheet.describe("f","B2C",[["Id кампании","Название","Логин","Бюджет"],
     ["800000014","b2c_dsa_new","demo-account-b2c","14300"],["800000016","smart_net","demo-account-b2c","5000"]]);
-  var rb2=Build.run({exp:be,sources:[bs3],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:3}}],
-    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,accountOverrides:{},strategyFor:"Средняя цена конверсии"});
-  eq("бюджет: добавлено 2 строки",rb2.stats.constructed,2);
-  var added=rb2.text.slice(1).split("\r\n").filter(function(l){return l.indexOf("800000014")>=0;})[0];
-  eq("бюджет: 7 полей",Fmt.parseLine(added).length,7);
-  eq("бюджет: AccountID",Fmt.parseLine(added)[0],'="900102"');
-  eq("бюджет: размещение поиск",Fmt.parseLine(added)[4],"поиск");
-  var addedNet=rb2.text.slice(1).split("\r\n").filter(function(l){return l.indexOf("800000016")>=0;})[0];
-  eq("бюджет: smart_ → сети",Fmt.parseLine(addedNet)[4],"сети");
+  var planNo={exp:be,sources:[bs3],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:3}}],
+    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,spares:[]};
+  var rb2=Build.run(planNo);
+  eq("без запасной выгрузки ничего не достроено",rb2.stats.constructed,0);
+  eq("без запасной: ошибка о перевыгрузке",rb2.issues.some(function(i){return i.lvl==="err"&&/Нет в заливочном/.test(i.title);}),true);
+  eq("без запасной: обе РК ушли на руки",rb2.manual.length,2);
 
-  /* бюджет: неизвестный аккаунт (кейс autokat) */
+  /* запасная выгрузка: настоящие строки тех же кампаний */
+  var SPARE=BOM+BH+CL+
+    brow("900102","demo-account-b2c","800000014","b2c_dsa_new","поиск","Средняя цена конверсии","9000")+CL+
+    brow("900102","demo-account-b2c","800000016","smart_net","сети","Оптимизация конверсий, множественные цели","4000")+CL;
+  var spare=Exp.parse(SPARE); spare.name="выгрузка от 31.08";
+  var rb2b=Build.run(Object.assign({},planNo,{spares:[spare]}));
+  eq("из запасной достроено 2",rb2b.stats.constructed,2);
+  eq("из запасной: ничего не ушло на руки",rb2b.manual.length,0);
+  var addedS=rb2b.text.slice(1).split(CL).filter(function(l){return l.indexOf("800000014")>=0;})[0];
+  eq("из запасной: 7 полей",Fmt.parseLine(addedS).length,7);
+  eq("из запасной: AccountID настоящий",Fmt.parseLine(addedS)[0],'="900102"');
+  eq("из запасной: стратегия настоящая",Fmt.parseLine(addedS)[5],"Средняя цена конверсии");
+  eq("из запасной: новое значение",Fmt.parseLine(addedS)[6],"14300");
+  var addedN=rb2b.text.slice(1).split(CL).filter(function(l){return l.indexOf("800000016")>=0;})[0];
+  eq("из запасной: размещение не угадано",Fmt.parseLine(addedN)[4],"сети");
+  eq("из запасной: предупреждение о свежести",rb2b.issues.some(function(i){return /запасной выгрузки/.test(i.title);}),true);
+
+  /* кампании нет вообще нигде — строку не выдумываем */
   var bs4=Sheet.describe("f","S",[["Id кампании","Название","Логин","Бюджет"],["800000015","dsa_x","demo-account-new","22000"]]);
   var rb3=Build.run({exp:be,sources:[bs4],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:3}}],
-    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,accountOverrides:{},strategyFor:""});
-  eq("не добавлено без AccountID",rb3.stats.constructed,0);
-  eq("ошибка про AccountID",rb3.issues.some(function(i){return i.lvl==="err"&&/AccountID/.test(i.title);}),true);
-  var rb4=Build.run({exp:be,sources:[bs4],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:3}}],
-    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,
-    accountOverrides:{"demo-account-new":"900104"},strategyFor:""});
-  eq("с ручным AccountID — добавлено",rb4.stats.constructed,1);
+    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,spares:[spare]});
+  eq("нет нигде — не достроено",rb3.stats.constructed,0);
+  eq("нет нигде — выдуманных строк нет",rb3.text.indexOf("800000015"),-1);
+  eq("нет нигде — ушло на руки",rb3.manual.length,1);
+
+  /* ставки: строка цели из запасной выгрузки — настоящая, не выдуманная */
+  var SPB=BOM+HDR+CL+
+    row("900102","demo-account-b2c","800000013","b2c_dsa_new","Поиск","Средняя цена конверсии","3000601598","Ecommerce: покупка","95")+CL;
+  var spb=Exp.parse(SPB); spb.name="старая выгрузка ставок";
+  var r6b=Build.run({exp:e,sources:[shM],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{"3000601598":3}}],
+    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,spares:[spb]});
+  eq("ставки: строка взята из запасной",r6b.stats.constructed,1);
+  eq("ставки: цель не выдумана",Fmt.parseLine(r6b.text.slice(1).split(CL)[1])[6],'="3000601598"');
+
+  /* справочник аккаунтов: подсказка, а не источник правды */
+  eq("справочник: заполнен",Accounts.size>10,true);
+  eq("справочник: по логину",(Accounts.find("pro-vseinstrumenti-b2b",null,null)||{}).id,"336594");
+  eq("справочник: регистр не важен",(Accounts.find("PRO-VseInstrumenti-DSA",null,null)||{}).id,"336585");
+  eq("справочник: незнакомый логин",Accounts.find("нет-такого-логина",null,null),null);
+  eq("справочник: заливочный важнее",(Accounts.find("acc-dsa",be,null)||{}).src,"exp");
+  eq("справочник: выученное важнее книги",(Accounts.find("pro-vseinstrumenti-b2b",null,{"pro-vseinstrumenti-b2b":"111"})||{}).id,"111");
+  eq("справочник: пары из заливочного",Accounts.harvest(be)["acc-dsa"],"900103");
+
+  /* «только строки с новым значением» работает и в сценарии «дополнить» */
+  var rOc=Build.run(Object.assign({},base,{onlyChanged:true}));
+  eq("дополнить + только новые: строк",rOc.stats.rowsOut,2);
+  eq("дополнить + только новые: ничего не сохранено",rOc.stats.kept,0);
+  eq("дополнить + только новые: подставлено",rOc.stats.inserted,2);
+
+  /* список «сделать руками» — то, что заливочным не решается */
+  eq("на руки: пусто, когда всё легло",r1.manual.length,0);
+  eq("на руки: кампании нет ни в одной выгрузке",r6.manual.filter(function(x){return /ни в одной/.test(x.reason);}).length,1);
+  eq("на руки: значение сохранено",r6.manual[0].value,108);
+  eq("на руки: логин сохранён",r6.manual[0].login,"demo-account-b2c");
+  eq("на руки: нет такой цели",r7.manual.filter(function(x){return /нет такой цели/.test(x.reason);}).length,1);
+  eq("на руки: округляется в 0",r8.manual.filter(function(x){return /в 0/.test(x.reason);}).length,1);
+  eq("на руки: нет ни в одной выгрузке",rb3.manual.filter(function(x){return /ни в одной/.test(x.reason);}).length,1);
+  eq("на руки: цель названа по-человечески",r7.manual[0].target.length>4,true);
 
   /* сверка заливки */
   var fresh=Exp.parse(BOM+HDR+"\r\n"+
