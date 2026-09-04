@@ -4,10 +4,13 @@
 var Rules=(function(){
   /* rule = {name, sheet:idx, scopeIds:[], useScope:bool, map:{goalId|BUDGET:col}} */
   function resolve(exp,sources,rules,opts){
-    var lut={},src={},meta={},conflicts=[],skippedZero=0,scopeAll={},seenIds={};
+    var lut={},src={},meta={},conflicts=[],skippedZero=0,scopeAll={};
     rules.forEach(function(rule,ri){
       var sh=sources[rule.sheet]; if(!sh)return;
-      var scope=null;
+      /* считаем заново на каждый вызов: resolve дёргается и при отрисовке,
+         иначе список «нет на листе» копится от прогона к прогону */
+      rule.notOnSheet=null;
+      var seenIds={},scope=null;
       if(rule.useScope&&rule.scopeIds.length){ scope={}; rule.scopeIds.forEach(function(i){scope[i]=1;}); }
       for(var i=sh.headerRow+1;i<sh.rows.length;i++){
         var row=sh.rows[i]; if(!row)continue;

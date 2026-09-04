@@ -32,7 +32,7 @@ var Xlsx=(function(){
       for(var j=0;j<cs.length;j++){
         var c=cs[j],ref=(c.getAttribute("r")||"").replace(/[0-9]/g,""),col=ref?colToIdx(ref):j,t=c.getAttribute("t"),v="";
         if(t==="inlineStr"){var is=c.getElementsByTagName("t");v=is.length?is[0].textContent:"";}
-        else{var vv=c.getElementsByTagName("v");if(vv.length){var raw=vv[0].textContent;v=(t==="s")?(sst[+raw]||""):raw;}}
+        else{var vv=c.getElementsByTagName("v");if(vv.length){var raw=vv[0].textContent;v=(t==="s")?(sst[+raw]||""):Fmt.plain(raw);}}
         arr[col]=v; if(col+1>maxC)maxC=col+1;
       }
       tmp[ri]=arr;
