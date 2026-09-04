@@ -5,7 +5,8 @@ var Build=(function(){
   function run(plan){
     var exp=plan.exp,R=Rules.resolve(exp,plan.sources,plan.rules,plan),lut=R.lut;
     var issues=[],preview=[],manual=[],out=[exp.header];
-    var glabel=function(g){ return (exp.goals.filter(function(x){return x.id===g;})[0]||{}).label||g; };
+    var glabel=function(g){ var l=(exp.goals.filter(function(x){return x.id===g;})[0]||{}).label;
+      return typeof Bank!=='undefined'?Bank.goal(g,l):(l||g); };
     var mrow=function(cid,target,value,reason){ var m=R.meta[cid]||{};
       manual.push({cid:cid,login:m.login||'',name:m.name||'',target:target,value:value,reason:reason}); };
     var scope=null;
@@ -86,7 +87,7 @@ var Build=(function(){
         var acc={};
         missing.forEach(function(c){ var lg=(R.meta[c]||{}).login||""; if(lg)acc[lg]=1; });
         var hint=Object.keys(acc).map(function(lg){
-          var f=typeof Accounts!=="undefined"?Accounts.find(lg,exp,plan.accountBook):null;
+          var f=typeof Bank!=="undefined"?Bank.find(lg,exp,plan.accountBook):null;
           return lg+(f?" ("+f.id+")":"");}).join(", ");
         issues.push({lvl:"err",title:"Нет в заливочном: "+blocked.length+" РК — значения НЕ попадут в файл",
           note:(exp.mode==="bids"
@@ -103,7 +104,7 @@ var Build=(function(){
       Object.keys(lut).forEach(function(k){
         var p=k.split("|"),cid=p[0],gid=p[1];
         if(!exp.campaigns[cid]||!inScope(cid)||pairsDone[k])return;
-        var lb=(exp.goals.filter(function(x){return x.id===gid;})[0]||{}).label||gid;
+        var lb=glabel(gid);
         noRow.push(cid+"  ·  "+lb+" = "+lut[k]);
         mrow(cid,lb,lut[k],"у кампании нет такой цели в заливочном");
       });

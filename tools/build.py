@@ -22,7 +22,7 @@ DIST = os.path.join(ROOT, "dist")
 MODULES = [
     "src/core/fmt.js",
     "src/core/export.js",
-    "src/core/accounts.js",
+    "src/core/bank.js",
     "src/core/sheet.js",
     "src/core/rules.js",
     "src/core/build.js",

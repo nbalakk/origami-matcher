@@ -228,21 +228,24 @@ var Exp=(function(){
 /* работает и в браузере, и в Node — ядро не зависит от DOM */
 if (typeof module !== "undefined" && module.exports) module.exports = Exp;
 
-/* ---------- src/core/accounts.js ---------- */
+/* ---------- src/core/bank.js ---------- */
 /* ══════════════════════════════════════════════════════════════════════════
-   МОДУЛЬ 2b · Accounts — справочник «логин → AccountID»
+   МОДУЛЬ 2b · Bank — справочник аккаунтов и целей
 
-   Нужен ровно для одного случая: собрать строку бюджета кампании, которой
-   нет в заливочном. Номер аккаунта не выводится из названия и не угадывается
-   по похожести — он либо есть в заливочном, либо в справочнике, либо его
-   вписывают руками. Иначе Оригами отобьёт файл.
+   Две вещи, которые из мастер-файла не выводятся, а знать их надо:
 
-   Справочник ниже — то, что уже встречалось в выгрузках. Он не заменяет
-   заливочный, а только подставляет значение в поле: видно, откуда оно взято,
-   и его всегда можно перебить.
+   • AccountID по логину — нужен, чтобы подсказать, какой аккаунт
+     перевыгружать, когда кампании нет в заливочном;
+   • имя цели — выгрузка часто отдаёт «Цель 1900001695» без названия,
+     и специалисту непонятно, что это апп-андроид.
+
+   Справочник — подсказка, а не источник правды: заливочный всегда важнее.
+   Сверяется раз в неделю по свежей выгрузке через Bank.check().
    ══════════════════════════════════════════════════════════════════════════ */
-var Accounts=(function(){
-  var BOOK={
+var Bank=(function(){
+  var UPDATED="2026-09-04";
+
+  var ACCOUNTS={
     "pro-vseinstrumenti":"336570",
     "pro-vseinstrumenti-ank":"336596",
     "pro-vseinstrumenti-auto":"336576",
@@ -262,22 +265,60 @@ var Accounts=(function(){
     "pro-vseinstrumenti-yug":"336572"
   };
 
-  function norm(s){ return String(s==null?"":s).trim().toLowerCase(); }
+  /* label — как цель называется в выгрузке; name — рабочее имя, если
+     выгрузка отдаёт безымянное «Цель N». Имена не выдумываем: они
+     проставлены только там, где известны из мастер-файла. */
+  var GOALS={
+    "3000601598":{label:"Ecommerce: покупка"},
+    "357428649":{label:"B2B заказ (полный доход)"},
+    "357428736":{label:"B2C и прочее заказ (полный доход)"},
+    "354427177":{label:"Первый заказ b2b"},
+    "453443948":{label:"Первый заказ b2c"},
+    "349784738":{label:"B2B заказ (скорр. доход)"},
+    "194353513":{label:"Ecommerce: добавление в корзину"},
+    "139518":{label:"Корзина"},
+    "1107811":{label:"Корзина"},
+    "77426224":{label:"Клик на позвонить - ВсеИнструменты.ру"},
+    "562652790":{label:"B2B заказ 2h"},
+    "562653386":{label:"B2C и прочее заказ 2h"},
+    "562653860":{label:"B2B заказ 7d"},
+    "562654489":{label:"B2C и прочее заказ 7d"},
+    "546708703":{label:"purchase_aov_10"},
+    "546708530":{label:"purchase_aov_5"},
+    "564535328":{label:"Яндекс форма отправить"},
+    "44209046":{label:"Ценность_3"},
+    /* встречаются в выгрузках, но выгрузка не отдаёт им имени —
+       пока не назовём, показываются как «Цель N» */
+    "13":{label:""},
+    "1420261":{label:""},
+    "1900000449":{label:""},
+    "1900001695":{label:"",name:"апп-андроид"},
+    "1900018239":{label:"",name:"апп-айос"}
+  };
 
-  /* Ищем номер аккаунта. Порядок важен: заливочный — источник правды,
-     всё остальное лишь подсказка. learned — пары, выученные из ранее
-     загруженных заливочных (их подкладывает интерфейс). */
+  function norm(s){ return String(s==null?"":s).trim().toLowerCase(); }
+  function noName(s){ return !s||/^Цель\s+\d+$/i.test(String(s).trim()); }
+
+  /* Номер аккаунта. Заливочный важнее всего, дальше — выученное, дальше книга. */
   function find(login,exp,learned){
     var lg=norm(login);
     if(!lg)return null;
     var byExp=exp&&exp.accounts?exp.accounts[String(login).trim()]:null;
     if(byExp)return {id:byExp,src:"exp",note:"из заливочного"};
     if(learned&&learned[lg])return {id:learned[lg],src:"learned",note:"из прошлых заливочных"};
-    if(BOOK[lg])return {id:BOOK[lg],src:"book",note:"из справочника"};
+    if(ACCOUNTS[lg])return {id:ACCOUNTS[lg],src:"book",note:"из справочника"};
     return null;
   }
 
-  /* Пары «логин → AccountID» из заливочного — чтобы запомнить их на будущее. */
+  /* Человеческое имя цели: из выгрузки, если оно там есть, иначе из справочника. */
+  function goal(id,fromExport){
+    var g=GOALS[String(id)];
+    if(!noName(fromExport))return String(fromExport);
+    if(g&&g.name)return g.name;
+    if(g&&g.label)return g.label;
+    return fromExport||("цель "+id);
+  }
+
   function harvest(exp){
     var out={};
     if(exp&&exp.accounts)for(var k in exp.accounts){
@@ -287,22 +328,52 @@ var Accounts=(function(){
     return out;
   }
 
-  function merge(a,b){
-    var out={},k;
-    for(k in (a||{}))out[k]=a[k];
-    for(k in (b||{}))out[k]=b[k];
-    return out;
+  function merge(a,b){ var o={},k;
+    for(k in (a||{}))o[k]=a[k];
+    for(k in (b||{}))o[k]=b[k];
+    return o; }
+
+  /* Еженедельная сверка со свежей выгрузкой. Ничего не меняет — только
+     показывает расхождения, чтобы справочник поправили руками. */
+  function check(exp){
+    var newAcc=[],changedAcc=[],newGoal=[],changedGoal=[],seenAcc={},seenGoal={};
+    if(exp&&exp.accounts)Object.keys(exp.accounts).forEach(function(lg){
+      var id=exp.accounts[lg],k=norm(lg); if(!k||!id)return;
+      seenAcc[k]=1;
+      if(!ACCOUNTS[k])newAcc.push({login:lg,id:id});
+      else if(ACCOUNTS[k]!==id)changedAcc.push({login:lg,was:ACCOUNTS[k],now:id});
+    });
+    (exp&&exp.goals?exp.goals:[]).forEach(function(g){
+      var id=String(g.id); if(!id)return;
+      seenGoal[id]=1;
+      var b=GOALS[id];
+      if(!b){ newGoal.push({id:id,label:g.label}); return; }
+      if(!noName(g.label)&&b.label&&b.label!==g.label)
+        changedGoal.push({id:id,was:b.label,now:g.label});
+    });
+    return {updated:UPDATED,
+      newAccounts:newAcc,changedAccounts:changedAcc,
+      newGoals:newGoal,changedGoals:changedGoal,
+      unseenAccounts:Object.keys(ACCOUNTS).filter(function(k){return !seenAcc[k];}),
+      unseenGoals:Object.keys(GOALS).filter(function(k){return !seenGoal[k];}),
+      okAccounts:!newAcc.length&&!changedAcc.length,
+      okGoals:!newGoal.length&&!changedGoal.length};
   }
 
-  function list(){
-    return Object.keys(BOOK).sort().map(function(k){return {login:k,id:BOOK[k]};});
-  }
+  function accountList(){ return Object.keys(ACCOUNTS).sort().map(function(k){return {login:k,id:ACCOUNTS[k]};}); }
+  function goalList(){ return Object.keys(GOALS).map(function(k){
+    return {id:k,label:GOALS[k].label,name:GOALS[k].name||""};}); }
 
-  return {find:find,harvest:harvest,merge:merge,list:list,size:Object.keys(BOOK).length};
+  return {updated:UPDATED,find:find,goal:goal,harvest:harvest,merge:merge,check:check,
+          accountList:accountList,goalList:goalList,
+          accounts:Object.keys(ACCOUNTS).length,goals:Object.keys(GOALS).length};
 })();
 
+/* совместимость: справочник раньше назывался Accounts */
+var Accounts=Bank;
+
 /* работает и в браузере, и в Node — ядро не зависит от DOM */
-if (typeof module !== "undefined" && module.exports) module.exports = Accounts;
+if (typeof module !== "undefined" && module.exports) module.exports = Bank;
 
 /* ---------- src/core/sheet.js ---------- */
 /* ══════════════════════════════════════════════════════════════════════════
@@ -416,7 +487,8 @@ var Build=(function(){
   function run(plan){
     var exp=plan.exp,R=Rules.resolve(exp,plan.sources,plan.rules,plan),lut=R.lut;
     var issues=[],preview=[],manual=[],out=[exp.header];
-    var glabel=function(g){ return (exp.goals.filter(function(x){return x.id===g;})[0]||{}).label||g; };
+    var glabel=function(g){ var l=(exp.goals.filter(function(x){return x.id===g;})[0]||{}).label;
+      return typeof Bank!=='undefined'?Bank.goal(g,l):(l||g); };
     var mrow=function(cid,target,value,reason){ var m=R.meta[cid]||{};
       manual.push({cid:cid,login:m.login||'',name:m.name||'',target:target,value:value,reason:reason}); };
     var scope=null;
@@ -497,7 +569,7 @@ var Build=(function(){
         var acc={};
         missing.forEach(function(c){ var lg=(R.meta[c]||{}).login||""; if(lg)acc[lg]=1; });
         var hint=Object.keys(acc).map(function(lg){
-          var f=typeof Accounts!=="undefined"?Accounts.find(lg,exp,plan.accountBook):null;
+          var f=typeof Bank!=="undefined"?Bank.find(lg,exp,plan.accountBook):null;
           return lg+(f?" ("+f.id+")":"");}).join(", ");
         issues.push({lvl:"err",title:"Нет в заливочном: "+blocked.length+" РК — значения НЕ попадут в файл",
           note:(exp.mode==="bids"
@@ -514,7 +586,7 @@ var Build=(function(){
       Object.keys(lut).forEach(function(k){
         var p=k.split("|"),cid=p[0],gid=p[1];
         if(!exp.campaigns[cid]||!inScope(cid)||pairsDone[k])return;
-        var lb=(exp.goals.filter(function(x){return x.id===gid;})[0]||{}).label||gid;
+        var lb=glabel(gid);
         noRow.push(cid+"  ·  "+lb+" = "+lut[k]);
         mrow(cid,lb,lut[k],"у кампании нет такой цели в заливочном");
       });
@@ -579,10 +651,16 @@ var Audit=(function(){
     add(exp.eol==="\r\n"?text.slice(-2)==="\r\n":true,"f","Файл заканчивается переводом строки");
     add(lines[0]===exp.header,"f","Заголовок не изменён");
 
-    var origPrefix={},origPairs=exp.pairs;
+    /* Настоящими считаются строки основного заливочного И запасных выгрузок:
+       из запасных строку можно взять целиком, но выдумать её нельзя ниоткуда. */
+    var origPrefix={},sparePrefix={},origPairs=exp.pairs;
     exp.rows.forEach(function(r){ origPrefix[Fmt.splitVal(r.line).prefix]=1; });
+    ((plan&&plan.spares)||[]).forEach(function(sp){
+      if(!sp||!sp.rows)return;
+      sp.rows.forEach(function(r){ sparePrefix[Fmt.splitVal(r.line).prefix]=1; });
+    });
 
-    var invented=[],badCols=[],nonInt=[],zeros=[],dup={},dups=[],mismatch=[],outOfScope=[];
+    var fromSpare=0,invented=[],badCols=[],nonInt=[],zeros=[],dup={},dups=[],mismatch=[],outOfScope=[];
     for(var i=1;i<lines.length;i++){
       var l=lines[i],f=Fmt.parseLine(l),sv=Fmt.splitVal(l);
       var cid=Fmt.digits(f[exp.C.camp]||""),gid=exp.C.goal>=0?Fmt.digits(f[exp.C.goal]||""):"";
@@ -592,10 +670,9 @@ var Audit=(function(){
       if(plan.roundNew&&!/^-?\d+$/.test(sv.value))nonInt.push("стр "+(i+1)+": "+sv.value);
       if(sv.value==="0")zeros.push("стр "+(i+1)+": "+cid);
       var isOrig=!!origPrefix[sv.prefix];
-      if(!isOrig){
-        if(exp.mode==="bids")invented.push("стр "+(i+1)+": "+cid+" · цель "+gid+" — такой строки нет в заливочном");
-        else if(!plan.addMissing)invented.push("стр "+(i+1)+": "+cid+" — строки нет в заливочном");
-      }
+      if(!isOrig&&sparePrefix[sv.prefix]){ isOrig=true; fromSpare++; }
+      if(!isOrig)invented.push("стр "+(i+1)+": "+cid+(gid?(" · цель "+gid):"")+
+        " — такой строки нет ни в заливочном, ни в запасных выгрузках");
       var want=lut[cid+"|"+(exp.mode==="bids"?gid:"BUDGET")];
       if(want!==undefined&&sv.value!==Fmt.out(want,plan.roundNew))
         mismatch.push("стр "+(i+1)+": "+cid+" = "+sv.value+", ожидалось "+Fmt.out(want,plan.roundNew));
@@ -607,6 +684,8 @@ var Audit=(function(){
     if(plan.roundNew)add(nonInt.length===0,"f","Все значения целые",nonInt.slice(0,10).join("\n"));
     add(zeros.length===0,"w","Нет значений «0»",zeros.slice(0,10).join("\n"));
     add(lines.length-1>0,"f","В файле есть строки ("+(lines.length-1)+")");
+    if(fromSpare)add(true,"w","Строк из запасных выгрузок: "+fromSpare,
+      "Аккаунт, размещение и стратегия у них настоящие, но запасная выгрузка может быть старше основной.");
     return res;
   }
   return {check:check};
@@ -956,7 +1035,7 @@ var $=function(i){return document.getElementById(i);};
 var ACC_KEY="origami-matcher.accounts";
 function accLoad(){ try{ return JSON.parse(localStorage.getItem(ACC_KEY)||"{}")||{}; }catch(e){ return {}; } }
 function accSave(o){ try{ localStorage.setItem(ACC_KEY,JSON.stringify(o)); }catch(e){} }
-function accLearn(pairs){ var o=Accounts.merge(accLoad(),pairs); accSave(o); return o; }
+function accLearn(pairs){ var o=Bank.merge(accLoad(),pairs); accSave(o); return o; }
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function show(id,on){ $(id).classList.toggle("off",!on); }
 $("ver").textContent=VERSION;
@@ -977,6 +1056,24 @@ function wireDrop(dropId,inputId,cb){
 }
 function readText(file,cb){ var r=new FileReader(); r.onload=function(){cb(r.result);}; r.readAsText(file,"utf-8"); }
 
+/* Сверка справочника со свежей выгрузкой. Ничего не правит сама —
+   показывает расхождения, чтобы справочник поправили руками. */
+function bankNote(e){
+  var c=Bank.check(e),d=[];
+  if(c.newAccounts.length)d.push("новых аккаунтов: "+c.newAccounts.length+
+    " ("+c.newAccounts.map(function(x){return x.login+" = "+x.id;}).join(", ")+")");
+  if(c.changedAccounts.length)d.push("сменился AccountID: "+
+    c.changedAccounts.map(function(x){return x.login+" "+x.was+" → "+x.now;}).join(", "));
+  if(c.newGoals.length)d.push("новых целей: "+c.newGoals.length+
+    " ("+c.newGoals.map(function(x){return x.id+(x.label?" — "+x.label:"");}).join(", ")+")");
+  if(c.changedGoals.length)d.push("цель переименована: "+
+    c.changedGoals.map(function(x){return x.id+" «"+x.was+"» → «"+x.now+"»";}).join(", "));
+  if(!d.length)return '<div class="box ok small">Справочник (' + c.updated +
+    ') сходится с этой выгрузкой: аккаунты и цели знакомы.</div>';
+  return '<div class="box warn small"><b>Справочник разошёлся с выгрузкой</b> (сверен ' + c.updated +
+    '):<br>' + d.map(esc).join("<br>") + '<br><span class="muted">На сборку не влияет — это повод обновить справочник.</span></div>';
+}
+
 /* ---------- шаг 1 ---------- */
 /* Запасные выгрузки. Нужны, когда часть кампаний не попала в основную:
    их настоящие строки берутся отсюда, а не собираются по догадке. */
@@ -995,7 +1092,7 @@ wireDrop("dropSpare","fileSpare",function(files){
   Array.prototype.forEach.call(files,function(f){
     readText(f,function(txt){
       var e=Exp.parse(txt);
-      if(e.ok&&e.mode===S.exp.mode){ e.name=f.name; S.spares.push(e); accLearn(Accounts.harvest(e)); }
+      if(e.ok&&e.mode===S.exp.mode){ e.name=f.name; S.spares.push(e); accLearn(Bank.harvest(e)); }
       else { $("spareInfo").insertAdjacentHTML("beforeend",
         '<div class="box err small">'+esc(f.name)+' — не подходит: нужен заливочный того же типа ('+
         (S.exp.mode==="bids"?"ставки":"бюджеты")+').</div>'); }
@@ -1008,11 +1105,12 @@ wireDrop("dropCsv","fileCsv",function(files){
   readText(file,function(txt){
     var e=Exp.parse(txt);
     if(!e.ok){ $("csvInfo").innerHTML='<div class="box err">Нет колонки <b>CampaignID</b> — это точно заливочный из Оригами?</div>'; return; }
-    S.exp=e; S.rules=[]; accLearn(Accounts.harvest(e));
+    S.exp=e; S.rules=[]; accLearn(Bank.harvest(e));
     $("csvInfo").innerHTML='<div class="box ok"><b>'+esc(file.name)+'</b><br><span class="pill">'+
       (e.mode==="bids"?"Ставки по целям":"Недельные бюджеты")+'</span> · строк <b>'+e.rows.length+'</b> · кампаний <b>'+
       Object.keys(e.campaigns).length+'</b>'+(e.mode==="bids"?' · целей <b>'+e.goals.length+'</b>':'')+
       ' · аккаунтов <b>'+Object.keys(e.accounts).length+'</b></div>';
+    $("csvInfo").insertAdjacentHTML("beforeend",bankNote(e));
     $("spareWrap").classList.remove("hide");
     show("c2",true); show("c3",true); show("c4",true); show("c5",true);
     if(S.sources.length&&!S.rules.length)addRule();
@@ -1307,7 +1405,7 @@ function renderMissCfg(missing,R){
        'Оригами отобьёт вместе со всем файлом — поэтому такие РК уходят в список на ручную работу.</div>';
     var lg=Object.keys(accs);
     if(lg.length)h+='<div class="small muted" style="margin-top:6px">Перевыгрузить заливочный по аккаунтам:</div><table class="t">'+
-      lg.map(function(x){ var f=Accounts.find(x,S.exp,accLoad());
+      lg.map(function(x){ var f=Bank.find(x,S.exp,accLoad());
         return '<tr><td class="k">'+esc(x)+' <span class="muted small">· '+accs[x]+' РК</span></td>'+
                '<td style="width:34%">'+(f?'AccountID <b>'+esc(f.id)+'</b> <span class="muted small">'+esc(f.note)+'</span>':
                '<span class="muted small">AccountID неизвестен</span>')+'</td></tr>';}).join("")+'</table>';
@@ -1317,7 +1415,11 @@ function renderMissCfg(missing,R){
 
 /* ---------- шаг 5 ---------- */
 function ready(){
-  var ok=S.exp&&S.rules.length&&S.rules.some(function(r){return Object.keys(r.map).length>0;});
+  /* Столбец, выбранный как «не выбрано», это -1 — правило с одним таким
+     столбцом ничего не подставит, а файл соберётся пустышкой. Считаем
+     готовым только когда хоть в одном правиле выбран настоящий столбец. */
+  var ok=S.exp&&S.rules.length&&S.rules.some(function(r){
+    return Object.keys(r.map||{}).some(function(k){return r.map[k]>=0;}); });
   $("go").disabled=!ok; $("dl").classList.add("hide"); $("dlRep").classList.add("hide");
   $("dlMan").classList.add("hide"); $("status").textContent="";
 }
@@ -1400,7 +1502,7 @@ $("dlRep").addEventListener("click",function(){
   S.rules.forEach(function(r,i){
     L.push(" "+(i+1)+") лист «"+r.name+"» · охват: "+(r.useScope?("список из "+r.scopeIds.length+" ID"):"все РК листа"));
     Object.keys(r.map).forEach(function(k){
-      var lb=k==="BUDGET"?"бюджет":((S.exp.goals.filter(function(g){return g.id===k;})[0]||{}).label||k);
+      var lb=k==="BUDGET"?"бюджет":Bank.goal(k,(S.exp.goals.filter(function(g){return g.id===k;})[0]||{}).label);
       var sh=S.sources[r.sheet],hd=(sh.rows[sh.headerRow]||[])[r.map[k]];
       L.push("     "+lb+"  ←  "+(hd||("столбец "+Xlsx.colLetter(r.map[k])))+" ["+Xlsx.colLetter(r.map[k])+"]");
     });
@@ -1483,7 +1585,7 @@ if(_rt)_rt.addEventListener("click",async function(ev){
   /* модули берём из окружения: в Node их подкладывает раннер, в браузере — глобальные */
   function mods() {
     var g = (typeof globalThis !== "undefined" ? globalThis : this);
-    return {Fmt: g.Fmt, Exp: g.Exp, Accounts: g.Accounts, Sheet: g.Sheet, Rules: g.Rules,
+    return {Fmt: g.Fmt, Exp: g.Exp, Bank: g.Bank, Sheet: g.Sheet, Rules: g.Rules,
             Build: g.Build, Audit: g.Audit, Verify: g.Verify, Xlsx: g.Xlsx};
   }
 
@@ -1491,7 +1593,7 @@ if(_rt)_rt.addEventListener("click",async function(ev){
     opts = opts || {};
     var withXlsx = opts.xlsx !== false && typeof CompressionStream !== "undefined";
     var M = mods();
-    var Fmt = M.Fmt, Exp = M.Exp, Accounts = M.Accounts, Sheet = M.Sheet, Rules = M.Rules,
+    var Fmt = M.Fmt, Exp = M.Exp, Bank = M.Bank, Accounts = M.Bank, Sheet = M.Sheet, Rules = M.Rules,
         Build = M.Build, Audit = M.Audit, Verify = M.Verify, Xlsx = M.Xlsx;
 
   var L=[],ok=true,n=0;
@@ -1693,13 +1795,77 @@ if(_rt)_rt.addEventListener("click",async function(ev){
   eq("ставки: цель не выдумана",Fmt.parseLine(r6b.text.slice(1).split(CL)[1])[6],'="3000601598"');
 
   /* справочник аккаунтов: подсказка, а не источник правды */
-  eq("справочник: заполнен",Accounts.size>10,true);
-  eq("справочник: по логину",(Accounts.find("pro-vseinstrumenti-b2b",null,null)||{}).id,"336594");
-  eq("справочник: регистр не важен",(Accounts.find("PRO-VseInstrumenti-DSA",null,null)||{}).id,"336585");
-  eq("справочник: незнакомый логин",Accounts.find("нет-такого-логина",null,null),null);
-  eq("справочник: заливочный важнее",(Accounts.find("acc-dsa",be,null)||{}).src,"exp");
-  eq("справочник: выученное важнее книги",(Accounts.find("pro-vseinstrumenti-b2b",null,{"pro-vseinstrumenti-b2b":"111"})||{}).id,"111");
-  eq("справочник: пары из заливочного",Accounts.harvest(be)["acc-dsa"],"900103");
+  eq("справочник: аккаунты заполнены",Bank.accounts>10,true);
+  eq("справочник: цели заполнены",Bank.goals>10,true);
+  eq("справочник: по логину",(Bank.find("pro-vseinstrumenti-b2b",null,null)||{}).id,"336594");
+  eq("справочник: регистр не важен",(Bank.find("PRO-VseInstrumenti-DSA",null,null)||{}).id,"336585");
+  eq("справочник: незнакомый логин",Bank.find("нет-такого-логина",null,null),null);
+  eq("справочник: заливочный важнее",(Bank.find("acc-dsa",be,null)||{}).src,"exp");
+  eq("справочник: выученное важнее книги",(Bank.find("pro-vseinstrumenti-b2b",null,{"pro-vseinstrumenti-b2b":"111"})||{}).id,"111");
+  eq("справочник: пары из заливочного",Bank.harvest(be)["acc-dsa"],"900103");
+
+  /* имена целей: выгрузка часто отдаёт безымянное «Цель N» */
+  eq("цель: имя из выгрузки важнее",Bank.goal("3000601598","Ecommerce: покупка"),"Ecommerce: покупка");
+  eq("цель: безымянную дополняем",Bank.goal("1900001695","Цель 1900001695"),"апп-андроид");
+  eq("цель: пустую дополняем",Bank.goal("1900018239",""),"апп-айос");
+  eq("цель: незнакомую не выдумываем",Bank.goal("999999999","Цель 999999999"),"Цель 999999999");
+  eq("цель: имя из выгрузки для незнакомой",Bank.goal("999999999","Моя цель"),"Моя цель");
+
+  /* еженедельная сверка справочника со свежей выгрузкой */
+  var chk=Bank.check(e);
+  eq("сверка: незнакомые аккаунты видны",chk.newAccounts.length>0,true);
+  eq("сверка: ничего не меняет молча",typeof chk.okAccounts,"boolean");
+  var chkSelf=Bank.check({accounts:{"pro-vseinstrumenti-b2b":"336594"},
+    goals:[{id:"3000601598",label:"Ecommerce: покупка"}]});
+  eq("сверка: знакомое не всплывает",chkSelf.newAccounts.length+chkSelf.newGoals.length,0);
+  eq("сверка: знакомое без расхождений",chkSelf.okAccounts&&chkSelf.okGoals,true);
+  var chkBad=Bank.check({accounts:{"pro-vseinstrumenti-b2b":"999999"},
+    goals:[{id:"3000601598",label:"Другое имя"}]});
+  eq("сверка: сменившийся AccountID замечен",chkBad.changedAccounts.length,1);
+  eq("сверка: переименованная цель замечена",chkBad.changedGoals.length,1);
+
+  /* имя цели доезжает до списка на ручную работу */
+  eq("на руки: цель названа, а не «Цель N»",/^Цель\s/.test(r7.manual[0].target),false);
+
+  /* ── злые случаи: то, что ломает файл, если не поймать ── */
+
+  /* один и тот же ID дважды на листе — в файл идёт одна строка */
+  var shDup=Sheet.describe("f","Дубли",[["Id кампании","Название","Логин","Бюджет"],
+    ["800000011","dsa_a","acc-dsa","30000"],["800000011","dsa_a","acc-dsa","40000"]]);
+  var rDup=Build.run({exp:be,sources:[shDup],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:3}}],
+    scenario:"new",onlyChanged:true,roundNew:true,roundAll:true,addMissing:false,spares:[]});
+  eq("дубль ID: одна строка",rDup.stats.rowsOut,1);
+  eq("дубль ID: победило последнее",rDup.text.slice(1).split(CL)[1].split(";").pop(),"40000");
+
+  /* мусор в списке ID не роняет сборку */
+  var rTrash=Build.run({exp:be,sources:[bs1],
+    rules:[{name:"R",sheet:0,useScope:true,scopeIds:["800000011","","abc","   ","0"],map:{BUDGET:3}}],
+    scenario:"new",onlyChanged:true,roundNew:true,roundAll:true,addMissing:false,spares:[]});
+  eq("мусор в списке ID: собралось",rTrash.stats.rowsOut,1);
+
+  /* запасная выгрузка чужого типа игнорируется */
+  var rWrong=Build.run({exp:be,sources:[bs4],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:3}}],
+    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,spares:[e]});
+  eq("запасная чужого типа: ничего не достроено",rWrong.stats.constructed,0);
+  eq("запасная чужого типа: ушло на руки",rWrong.manual.length,1);
+
+  /* пустая запасная выгрузка */
+  var spEmpty=Exp.parse(BOM+BH+CL); spEmpty.name="пустая";
+  var rEmpty=Build.run({exp:be,sources:[bs4],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:3}}],
+    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,spares:[spEmpty]});
+  eq("пустая запасная: ничего не достроено",rEmpty.stats.constructed,0);
+
+  /* столбец «не выбрано» (-1) ничего не подставляет */
+  var rNoCol=Build.run({exp:be,sources:[bs1],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:-1}}],
+    scenario:"new",onlyChanged:true,roundNew:true,roundAll:true,addMissing:false,spares:[]});
+  eq("столбец не выбран: значений нет",rNoCol.stats.inserted,0);
+
+  /* аудит знает про запасные и не считает их строки выдуманными */
+  var aSpare=Audit.check(rb2b.text,be,rb2b.lut,Object.assign({},planNo,{spares:[spare]}));
+  eq("аудит: строки из запасной не выдуманные",aSpare.filter(function(x){return !x.ok&&x.lvl==="f";}).length,0);
+  eq("аудит: помечает, сколько взято из запасных",aSpare.some(function(x){return /из запасных выгрузок/.test(x.title);}),true);
+  var aNoSpare=Audit.check(rb2b.text,be,rb2b.lut,Object.assign({},planNo,{spares:[]}));
+  eq("аудит: без запасных те же строки — выдуманные",aNoSpare.filter(function(x){return !x.ok&&x.lvl==="f";}).length>0,true);
 
   /* «только строки с новым значением» работает и в сценарии «дополнить» */
   var rOc=Build.run(Object.assign({},base,{onlyChanged:true}));

@@ -14,7 +14,7 @@ var $=function(i){return document.getElementById(i);};
 var ACC_KEY="origami-matcher.accounts";
 function accLoad(){ try{ return JSON.parse(localStorage.getItem(ACC_KEY)||"{}")||{}; }catch(e){ return {}; } }
 function accSave(o){ try{ localStorage.setItem(ACC_KEY,JSON.stringify(o)); }catch(e){} }
-function accLearn(pairs){ var o=Accounts.merge(accLoad(),pairs); accSave(o); return o; }
+function accLearn(pairs){ var o=Bank.merge(accLoad(),pairs); accSave(o); return o; }
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function show(id,on){ $(id).classList.toggle("off",!on); }
 $("ver").textContent=VERSION;
@@ -35,6 +35,24 @@ function wireDrop(dropId,inputId,cb){
 }
 function readText(file,cb){ var r=new FileReader(); r.onload=function(){cb(r.result);}; r.readAsText(file,"utf-8"); }
 
+/* Сверка справочника со свежей выгрузкой. Ничего не правит сама —
+   показывает расхождения, чтобы справочник поправили руками. */
+function bankNote(e){
+  var c=Bank.check(e),d=[];
+  if(c.newAccounts.length)d.push("новых аккаунтов: "+c.newAccounts.length+
+    " ("+c.newAccounts.map(function(x){return x.login+" = "+x.id;}).join(", ")+")");
+  if(c.changedAccounts.length)d.push("сменился AccountID: "+
+    c.changedAccounts.map(function(x){return x.login+" "+x.was+" → "+x.now;}).join(", "));
+  if(c.newGoals.length)d.push("новых целей: "+c.newGoals.length+
+    " ("+c.newGoals.map(function(x){return x.id+(x.label?" — "+x.label:"");}).join(", ")+")");
+  if(c.changedGoals.length)d.push("цель переименована: "+
+    c.changedGoals.map(function(x){return x.id+" «"+x.was+"» → «"+x.now+"»";}).join(", "));
+  if(!d.length)return '<div class="box ok small">Справочник (' + c.updated +
+    ') сходится с этой выгрузкой: аккаунты и цели знакомы.</div>';
+  return '<div class="box warn small"><b>Справочник разошёлся с выгрузкой</b> (сверен ' + c.updated +
+    '):<br>' + d.map(esc).join("<br>") + '<br><span class="muted">На сборку не влияет — это повод обновить справочник.</span></div>';
+}
+
 /* ---------- шаг 1 ---------- */
 /* Запасные выгрузки. Нужны, когда часть кампаний не попала в основную:
    их настоящие строки берутся отсюда, а не собираются по догадке. */
@@ -53,7 +71,7 @@ wireDrop("dropSpare","fileSpare",function(files){
   Array.prototype.forEach.call(files,function(f){
     readText(f,function(txt){
       var e=Exp.parse(txt);
-      if(e.ok&&e.mode===S.exp.mode){ e.name=f.name; S.spares.push(e); accLearn(Accounts.harvest(e)); }
+      if(e.ok&&e.mode===S.exp.mode){ e.name=f.name; S.spares.push(e); accLearn(Bank.harvest(e)); }
       else { $("spareInfo").insertAdjacentHTML("beforeend",
         '<div class="box err small">'+esc(f.name)+' — не подходит: нужен заливочный того же типа ('+
         (S.exp.mode==="bids"?"ставки":"бюджеты")+').</div>'); }
@@ -66,11 +84,12 @@ wireDrop("dropCsv","fileCsv",function(files){
   readText(file,function(txt){
     var e=Exp.parse(txt);
     if(!e.ok){ $("csvInfo").innerHTML='<div class="box err">Нет колонки <b>CampaignID</b> — это точно заливочный из Оригами?</div>'; return; }
-    S.exp=e; S.rules=[]; accLearn(Accounts.harvest(e));
+    S.exp=e; S.rules=[]; accLearn(Bank.harvest(e));
     $("csvInfo").innerHTML='<div class="box ok"><b>'+esc(file.name)+'</b><br><span class="pill">'+
       (e.mode==="bids"?"Ставки по целям":"Недельные бюджеты")+'</span> · строк <b>'+e.rows.length+'</b> · кампаний <b>'+
       Object.keys(e.campaigns).length+'</b>'+(e.mode==="bids"?' · целей <b>'+e.goals.length+'</b>':'')+
       ' · аккаунтов <b>'+Object.keys(e.accounts).length+'</b></div>';
+    $("csvInfo").insertAdjacentHTML("beforeend",bankNote(e));
     $("spareWrap").classList.remove("hide");
     show("c2",true); show("c3",true); show("c4",true); show("c5",true);
     if(S.sources.length&&!S.rules.length)addRule();
@@ -365,7 +384,7 @@ function renderMissCfg(missing,R){
        'Оригами отобьёт вместе со всем файлом — поэтому такие РК уходят в список на ручную работу.</div>';
     var lg=Object.keys(accs);
     if(lg.length)h+='<div class="small muted" style="margin-top:6px">Перевыгрузить заливочный по аккаунтам:</div><table class="t">'+
-      lg.map(function(x){ var f=Accounts.find(x,S.exp,accLoad());
+      lg.map(function(x){ var f=Bank.find(x,S.exp,accLoad());
         return '<tr><td class="k">'+esc(x)+' <span class="muted small">· '+accs[x]+' РК</span></td>'+
                '<td style="width:34%">'+(f?'AccountID <b>'+esc(f.id)+'</b> <span class="muted small">'+esc(f.note)+'</span>':
                '<span class="muted small">AccountID неизвестен</span>')+'</td></tr>';}).join("")+'</table>';
@@ -375,7 +394,11 @@ function renderMissCfg(missing,R){
 
 /* ---------- шаг 5 ---------- */
 function ready(){
-  var ok=S.exp&&S.rules.length&&S.rules.some(function(r){return Object.keys(r.map).length>0;});
+  /* Столбец, выбранный как «не выбрано», это -1 — правило с одним таким
+     столбцом ничего не подставит, а файл соберётся пустышкой. Считаем
+     готовым только когда хоть в одном правиле выбран настоящий столбец. */
+  var ok=S.exp&&S.rules.length&&S.rules.some(function(r){
+    return Object.keys(r.map||{}).some(function(k){return r.map[k]>=0;}); });
   $("go").disabled=!ok; $("dl").classList.add("hide"); $("dlRep").classList.add("hide");
   $("dlMan").classList.add("hide"); $("status").textContent="";
 }
@@ -458,7 +481,7 @@ $("dlRep").addEventListener("click",function(){
   S.rules.forEach(function(r,i){
     L.push(" "+(i+1)+") лист «"+r.name+"» · охват: "+(r.useScope?("список из "+r.scopeIds.length+" ID"):"все РК листа"));
     Object.keys(r.map).forEach(function(k){
-      var lb=k==="BUDGET"?"бюджет":((S.exp.goals.filter(function(g){return g.id===k;})[0]||{}).label||k);
+      var lb=k==="BUDGET"?"бюджет":Bank.goal(k,(S.exp.goals.filter(function(g){return g.id===k;})[0]||{}).label);
       var sh=S.sources[r.sheet],hd=(sh.rows[sh.headerRow]||[])[r.map[k]];
       L.push("     "+lb+"  ←  "+(hd||("столбец "+Xlsx.colLetter(r.map[k])))+" ["+Xlsx.colLetter(r.map[k])+"]");
     });

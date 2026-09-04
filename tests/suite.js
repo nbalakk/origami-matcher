@@ -14,7 +14,7 @@
   /* модули берём из окружения: в Node их подкладывает раннер, в браузере — глобальные */
   function mods() {
     var g = (typeof globalThis !== "undefined" ? globalThis : this);
-    return {Fmt: g.Fmt, Exp: g.Exp, Accounts: g.Accounts, Sheet: g.Sheet, Rules: g.Rules,
+    return {Fmt: g.Fmt, Exp: g.Exp, Bank: g.Bank, Sheet: g.Sheet, Rules: g.Rules,
             Build: g.Build, Audit: g.Audit, Verify: g.Verify, Xlsx: g.Xlsx};
   }
 
@@ -22,7 +22,7 @@
     opts = opts || {};
     var withXlsx = opts.xlsx !== false && typeof CompressionStream !== "undefined";
     var M = mods();
-    var Fmt = M.Fmt, Exp = M.Exp, Accounts = M.Accounts, Sheet = M.Sheet, Rules = M.Rules,
+    var Fmt = M.Fmt, Exp = M.Exp, Bank = M.Bank, Accounts = M.Bank, Sheet = M.Sheet, Rules = M.Rules,
         Build = M.Build, Audit = M.Audit, Verify = M.Verify, Xlsx = M.Xlsx;
 
   var L=[],ok=true,n=0;
@@ -224,13 +224,77 @@
   eq("ставки: цель не выдумана",Fmt.parseLine(r6b.text.slice(1).split(CL)[1])[6],'="3000601598"');
 
   /* справочник аккаунтов: подсказка, а не источник правды */
-  eq("справочник: заполнен",Accounts.size>10,true);
-  eq("справочник: по логину",(Accounts.find("pro-vseinstrumenti-b2b",null,null)||{}).id,"336594");
-  eq("справочник: регистр не важен",(Accounts.find("PRO-VseInstrumenti-DSA",null,null)||{}).id,"336585");
-  eq("справочник: незнакомый логин",Accounts.find("нет-такого-логина",null,null),null);
-  eq("справочник: заливочный важнее",(Accounts.find("acc-dsa",be,null)||{}).src,"exp");
-  eq("справочник: выученное важнее книги",(Accounts.find("pro-vseinstrumenti-b2b",null,{"pro-vseinstrumenti-b2b":"111"})||{}).id,"111");
-  eq("справочник: пары из заливочного",Accounts.harvest(be)["acc-dsa"],"900103");
+  eq("справочник: аккаунты заполнены",Bank.accounts>10,true);
+  eq("справочник: цели заполнены",Bank.goals>10,true);
+  eq("справочник: по логину",(Bank.find("pro-vseinstrumenti-b2b",null,null)||{}).id,"336594");
+  eq("справочник: регистр не важен",(Bank.find("PRO-VseInstrumenti-DSA",null,null)||{}).id,"336585");
+  eq("справочник: незнакомый логин",Bank.find("нет-такого-логина",null,null),null);
+  eq("справочник: заливочный важнее",(Bank.find("acc-dsa",be,null)||{}).src,"exp");
+  eq("справочник: выученное важнее книги",(Bank.find("pro-vseinstrumenti-b2b",null,{"pro-vseinstrumenti-b2b":"111"})||{}).id,"111");
+  eq("справочник: пары из заливочного",Bank.harvest(be)["acc-dsa"],"900103");
+
+  /* имена целей: выгрузка часто отдаёт безымянное «Цель N» */
+  eq("цель: имя из выгрузки важнее",Bank.goal("3000601598","Ecommerce: покупка"),"Ecommerce: покупка");
+  eq("цель: безымянную дополняем",Bank.goal("1900001695","Цель 1900001695"),"апп-андроид");
+  eq("цель: пустую дополняем",Bank.goal("1900018239",""),"апп-айос");
+  eq("цель: незнакомую не выдумываем",Bank.goal("999999999","Цель 999999999"),"Цель 999999999");
+  eq("цель: имя из выгрузки для незнакомой",Bank.goal("999999999","Моя цель"),"Моя цель");
+
+  /* еженедельная сверка справочника со свежей выгрузкой */
+  var chk=Bank.check(e);
+  eq("сверка: незнакомые аккаунты видны",chk.newAccounts.length>0,true);
+  eq("сверка: ничего не меняет молча",typeof chk.okAccounts,"boolean");
+  var chkSelf=Bank.check({accounts:{"pro-vseinstrumenti-b2b":"336594"},
+    goals:[{id:"3000601598",label:"Ecommerce: покупка"}]});
+  eq("сверка: знакомое не всплывает",chkSelf.newAccounts.length+chkSelf.newGoals.length,0);
+  eq("сверка: знакомое без расхождений",chkSelf.okAccounts&&chkSelf.okGoals,true);
+  var chkBad=Bank.check({accounts:{"pro-vseinstrumenti-b2b":"999999"},
+    goals:[{id:"3000601598",label:"Другое имя"}]});
+  eq("сверка: сменившийся AccountID замечен",chkBad.changedAccounts.length,1);
+  eq("сверка: переименованная цель замечена",chkBad.changedGoals.length,1);
+
+  /* имя цели доезжает до списка на ручную работу */
+  eq("на руки: цель названа, а не «Цель N»",/^Цель\s/.test(r7.manual[0].target),false);
+
+  /* ── злые случаи: то, что ломает файл, если не поймать ── */
+
+  /* один и тот же ID дважды на листе — в файл идёт одна строка */
+  var shDup=Sheet.describe("f","Дубли",[["Id кампании","Название","Логин","Бюджет"],
+    ["800000011","dsa_a","acc-dsa","30000"],["800000011","dsa_a","acc-dsa","40000"]]);
+  var rDup=Build.run({exp:be,sources:[shDup],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:3}}],
+    scenario:"new",onlyChanged:true,roundNew:true,roundAll:true,addMissing:false,spares:[]});
+  eq("дубль ID: одна строка",rDup.stats.rowsOut,1);
+  eq("дубль ID: победило последнее",rDup.text.slice(1).split(CL)[1].split(";").pop(),"40000");
+
+  /* мусор в списке ID не роняет сборку */
+  var rTrash=Build.run({exp:be,sources:[bs1],
+    rules:[{name:"R",sheet:0,useScope:true,scopeIds:["800000011","","abc","   ","0"],map:{BUDGET:3}}],
+    scenario:"new",onlyChanged:true,roundNew:true,roundAll:true,addMissing:false,spares:[]});
+  eq("мусор в списке ID: собралось",rTrash.stats.rowsOut,1);
+
+  /* запасная выгрузка чужого типа игнорируется */
+  var rWrong=Build.run({exp:be,sources:[bs4],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:3}}],
+    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,spares:[e]});
+  eq("запасная чужого типа: ничего не достроено",rWrong.stats.constructed,0);
+  eq("запасная чужого типа: ушло на руки",rWrong.manual.length,1);
+
+  /* пустая запасная выгрузка */
+  var spEmpty=Exp.parse(BOM+BH+CL); spEmpty.name="пустая";
+  var rEmpty=Build.run({exp:be,sources:[bs4],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:3}}],
+    scenario:"new",onlyChanged:false,roundNew:true,roundAll:true,addMissing:true,spares:[spEmpty]});
+  eq("пустая запасная: ничего не достроено",rEmpty.stats.constructed,0);
+
+  /* столбец «не выбрано» (-1) ничего не подставляет */
+  var rNoCol=Build.run({exp:be,sources:[bs1],rules:[{name:"R",sheet:0,useScope:false,scopeIds:[],map:{BUDGET:-1}}],
+    scenario:"new",onlyChanged:true,roundNew:true,roundAll:true,addMissing:false,spares:[]});
+  eq("столбец не выбран: значений нет",rNoCol.stats.inserted,0);
+
+  /* аудит знает про запасные и не считает их строки выдуманными */
+  var aSpare=Audit.check(rb2b.text,be,rb2b.lut,Object.assign({},planNo,{spares:[spare]}));
+  eq("аудит: строки из запасной не выдуманные",aSpare.filter(function(x){return !x.ok&&x.lvl==="f";}).length,0);
+  eq("аудит: помечает, сколько взято из запасных",aSpare.some(function(x){return /из запасных выгрузок/.test(x.title);}),true);
+  var aNoSpare=Audit.check(rb2b.text,be,rb2b.lut,Object.assign({},planNo,{spares:[]}));
+  eq("аудит: без запасных те же строки — выдуманные",aNoSpare.filter(function(x){return !x.ok&&x.lvl==="f";}).length>0,true);
 
   /* «только строки с новым значением» работает и в сценарии «дополнить» */
   var rOc=Build.run(Object.assign({},base,{onlyChanged:true}));
