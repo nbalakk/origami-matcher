@@ -3,6 +3,8 @@
    ══════════════════════════════════════════════════════════════════════════ */
 var Audit=(function(){
   function check(text,exp,lut,plan){
+    plan=plan||{};
+    var roundNew=plan.roundNew!==false;   /* округление обязательное, галки больше нет */
     var res=[],bom=text.charCodeAt(0)===0xFEFF;
     var body=bom?text.slice(1):text;
     var eol=body.indexOf("\r\n")>=0?"\r\n":"\n";
@@ -29,21 +31,21 @@ var Audit=(function(){
       if(f.length!==exp.cols)badCols.push("стр "+(i+1)+": полей "+f.length+" вместо "+exp.cols);
       var k=cid+"|"+gid;
       if(dup[k])dups.push("стр "+(i+1)+": "+cid+(gid?(" · цель "+gid):"")); dup[k]=1;
-      if(plan.roundNew&&!/^-?\d+$/.test(sv.value))nonInt.push("стр "+(i+1)+": "+sv.value);
+      if(roundNew&&!/^-?\d+$/.test(sv.value))nonInt.push("стр "+(i+1)+": "+sv.value);
       if(sv.value==="0")zeros.push("стр "+(i+1)+": "+cid);
       var isOrig=!!origPrefix[sv.prefix];
       if(!isOrig&&sparePrefix[sv.prefix]){ isOrig=true; fromSpare++; }
       if(!isOrig)invented.push("стр "+(i+1)+": "+cid+(gid?(" · цель "+gid):"")+
         " — такой строки нет ни в заливочном, ни в запасных выгрузках");
       var want=lut[cid+"|"+(exp.mode==="bids"?gid:"BUDGET")];
-      if(want!==undefined&&sv.value!==Fmt.out(want,plan.roundNew))
-        mismatch.push("стр "+(i+1)+": "+cid+" = "+sv.value+", ожидалось "+Fmt.out(want,plan.roundNew));
+      if(want!==undefined&&sv.value!==Fmt.out(want,roundNew))
+        mismatch.push("стр "+(i+1)+": "+cid+" = "+sv.value+", ожидалось "+Fmt.out(want,roundNew));
     }
     add(invented.length===0,"f","Нет выдуманных строк"+(invented.length?": "+invented.length:""),invented.slice(0,15).join("\n"));
     add(badCols.length===0,"f","Во всех строках правильное число колонок",badCols.slice(0,10).join("\n"));
     add(dups.length===0,"f","Нет дублей"+(exp.mode==="bids"?" «кампания + цель»":" кампаний"),dups.slice(0,10).join("\n"));
     add(mismatch.length===0,"f","Все значения совпадают с мастер-файлом",mismatch.slice(0,15).join("\n"));
-    if(plan.roundNew)add(nonInt.length===0,"f","Все значения целые",nonInt.slice(0,10).join("\n"));
+    add(roundNew?nonInt.length===0:true,"f","Все значения целые",nonInt.slice(0,10).join("\n"));
     add(zeros.length===0,"w","Нет значений «0»",zeros.slice(0,10).join("\n"));
     add(lines.length-1>0,"f","В файле есть строки ("+(lines.length-1)+")");
     if(fromSpare)add(true,"w","Строк из запасных выгрузок: "+fromSpare,

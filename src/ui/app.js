@@ -16,7 +16,7 @@ function accLoad(){ try{ return JSON.parse(localStorage.getItem(ACC_KEY)||"{}")|
 function accSave(o){ try{ localStorage.setItem(ACC_KEY,JSON.stringify(o)); }catch(e){} }
 function accLearn(pairs){ var o=Bank.merge(accLoad(),pairs); accSave(o); return o; }
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
-function show(id,on){ $(id).classList.toggle("off",!on); }
+function show(id,on){ var el=$(id); if(el)el.classList.toggle("off",!on); }
 $("ver").textContent=VERSION;
 
 document.querySelectorAll(".tab").forEach(function(t){
@@ -118,7 +118,7 @@ wireDrop("dropCsv","fileCsv",function(files){
       ' · аккаунтов <b>'+Object.keys(e.accounts).length+'</b></div>';
     $("csvInfo").insertAdjacentHTML("beforeend",bankNote(e));
     $("spareWrap").classList.remove("hide");
-    show("c2",true); show("c3",true); show("c4",true); show("c5",true);
+    show("c2",true); show("c3",true); show("c5",true);
     if(S.sources.length&&!S.rules.length)addRule();
     renderRules(); renderMiss(); ready();
   });

@@ -2126,6 +2126,8 @@ if (typeof module !== "undefined" && module.exports) module.exports = Build;
    ══════════════════════════════════════════════════════════════════════════ */
 var Audit=(function(){
   function check(text,exp,lut,plan){
+    plan=plan||{};
+    var roundNew=plan.roundNew!==false;   /* округление обязательное, галки больше нет */
     var res=[],bom=text.charCodeAt(0)===0xFEFF;
     var body=bom?text.slice(1):text;
     var eol=body.indexOf("\r\n")>=0?"\r\n":"\n";
@@ -2152,21 +2154,21 @@ var Audit=(function(){
       if(f.length!==exp.cols)badCols.push("стр "+(i+1)+": полей "+f.length+" вместо "+exp.cols);
       var k=cid+"|"+gid;
       if(dup[k])dups.push("стр "+(i+1)+": "+cid+(gid?(" · цель "+gid):"")); dup[k]=1;
-      if(plan.roundNew&&!/^-?\d+$/.test(sv.value))nonInt.push("стр "+(i+1)+": "+sv.value);
+      if(roundNew&&!/^-?\d+$/.test(sv.value))nonInt.push("стр "+(i+1)+": "+sv.value);
       if(sv.value==="0")zeros.push("стр "+(i+1)+": "+cid);
       var isOrig=!!origPrefix[sv.prefix];
       if(!isOrig&&sparePrefix[sv.prefix]){ isOrig=true; fromSpare++; }
       if(!isOrig)invented.push("стр "+(i+1)+": "+cid+(gid?(" · цель "+gid):"")+
         " — такой строки нет ни в заливочном, ни в запасных выгрузках");
       var want=lut[cid+"|"+(exp.mode==="bids"?gid:"BUDGET")];
-      if(want!==undefined&&sv.value!==Fmt.out(want,plan.roundNew))
-        mismatch.push("стр "+(i+1)+": "+cid+" = "+sv.value+", ожидалось "+Fmt.out(want,plan.roundNew));
+      if(want!==undefined&&sv.value!==Fmt.out(want,roundNew))
+        mismatch.push("стр "+(i+1)+": "+cid+" = "+sv.value+", ожидалось "+Fmt.out(want,roundNew));
     }
     add(invented.length===0,"f","Нет выдуманных строк"+(invented.length?": "+invented.length:""),invented.slice(0,15).join("\n"));
     add(badCols.length===0,"f","Во всех строках правильное число колонок",badCols.slice(0,10).join("\n"));
     add(dups.length===0,"f","Нет дублей"+(exp.mode==="bids"?" «кампания + цель»":" кампаний"),dups.slice(0,10).join("\n"));
     add(mismatch.length===0,"f","Все значения совпадают с мастер-файлом",mismatch.slice(0,15).join("\n"));
-    if(plan.roundNew)add(nonInt.length===0,"f","Все значения целые",nonInt.slice(0,10).join("\n"));
+    add(roundNew?nonInt.length===0:true,"f","Все значения целые",nonInt.slice(0,10).join("\n"));
     add(zeros.length===0,"w","Нет значений «0»",zeros.slice(0,10).join("\n"));
     add(lines.length-1>0,"f","В файле есть строки ("+(lines.length-1)+")");
     if(fromSpare)add(true,"w","Строк из запасных выгрузок: "+fromSpare,
@@ -2514,7 +2516,7 @@ function accLoad(){ try{ return JSON.parse(localStorage.getItem(ACC_KEY)||"{}")|
 function accSave(o){ try{ localStorage.setItem(ACC_KEY,JSON.stringify(o)); }catch(e){} }
 function accLearn(pairs){ var o=Bank.merge(accLoad(),pairs); accSave(o); return o; }
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
-function show(id,on){ $(id).classList.toggle("off",!on); }
+function show(id,on){ var el=$(id); if(el)el.classList.toggle("off",!on); }
 $("ver").textContent=VERSION;
 
 document.querySelectorAll(".tab").forEach(function(t){
@@ -2616,7 +2618,7 @@ wireDrop("dropCsv","fileCsv",function(files){
       ' · аккаунтов <b>'+Object.keys(e.accounts).length+'</b></div>';
     $("csvInfo").insertAdjacentHTML("beforeend",bankNote(e));
     $("spareWrap").classList.remove("hide");
-    show("c2",true); show("c3",true); show("c4",true); show("c5",true);
+    show("c2",true); show("c3",true); show("c5",true);
     if(S.sources.length&&!S.rules.length)addRule();
     renderRules(); renderMiss(); ready();
   });
@@ -3170,6 +3172,10 @@ if(_rt)_rt.addEventListener("click",async function(ev){
   eq("префикс не тронут",l1[1].slice(0,l1[1].lastIndexOf(";")),EXPT.slice(1).split(CL)[1].replace(/;227$/,""));
   var a1=Audit.check(r1.text,e,r1.lut,base);
   eq("аудит: без провалов",a1.filter(function(x){return !x.ok&&x.lvl==="f";}).length,0);
+  /* округление обязательное: проверка «все значения целые» должна идти всегда,
+     даже когда в плане нет флага roundNew (галки в интерфейсе больше нет) */
+  eq("аудит: проверка целых есть без флага",Audit.check(r1.text,e,r1.lut,{}).some(function(x){return /целые/.test(x.title);}),true);
+  eq("аудит: 10 пунктов",Audit.check(r1.text,e,r1.lut,{}).length>=10,true);
 
   /* значение уже такое, какое надо — строка не идёт в файл */
   var shSame=Sheet.describe("f","S",[["Id кампании","Название","Логин","Ставка b2b НОВАЯ"],

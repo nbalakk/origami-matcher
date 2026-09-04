@@ -91,6 +91,10 @@
   eq("префикс не тронут",l1[1].slice(0,l1[1].lastIndexOf(";")),EXPT.slice(1).split(CL)[1].replace(/;227$/,""));
   var a1=Audit.check(r1.text,e,r1.lut,base);
   eq("аудит: без провалов",a1.filter(function(x){return !x.ok&&x.lvl==="f";}).length,0);
+  /* округление обязательное: проверка «все значения целые» должна идти всегда,
+     даже когда в плане нет флага roundNew (галки в интерфейсе больше нет) */
+  eq("аудит: проверка целых есть без флага",Audit.check(r1.text,e,r1.lut,{}).some(function(x){return /целые/.test(x.title);}),true);
+  eq("аудит: 10 пунктов",Audit.check(r1.text,e,r1.lut,{}).length>=10,true);
 
   /* значение уже такое, какое надо — строка не идёт в файл */
   var shSame=Sheet.describe("f","S",[["Id кампании","Название","Логин","Ставка b2b НОВАЯ"],
