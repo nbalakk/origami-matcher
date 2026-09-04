@@ -8,7 +8,7 @@
 document.title = "Оригами · конструктор заливочных файлов";
 document.getElementById("app").innerHTML = `
   <h1>Оригами · конструктор заливочных файлов</h1>
-  <p class="sub">Ставки и бюджеты: подставляет значения из мастер-файла в заливочный, собирает файл из нескольких пулов, проверяет его до заливки и сверяет результат после. Всё считается локально — файлы никуда не отправляются.</p>
+  <p class="sub">Ставки и бюджеты: собирает заливочный из одних только правок — строка попадает в файл, если новое значение из мастер-файла отличается от текущего. Проверяет файл до заливки и сверяет результат после. Всё считается локально — файлы никуда не отправляются.</p>
 
   <div class="tabs">
     <div class="tab on" data-tab="build">Сборка файла</div>
@@ -18,25 +18,8 @@ document.getElementById("app").innerHTML = `
 
 <!-- ═════════════════ СБОРКА ═════════════════ -->
 <div id="tab-build">
-<div class="card" id="c4">
-    <div class="step"><span class="num">1</span> Что делаем</div>
-    <label class="radio on"><input type="radio" name="scn" value="update" checked>
-      <span><b>Дополнить исходник</b><span class="t2">Файл остаётся целиком, меняются только найденные значения.</span></span></label>
-    <label class="radio"><input type="radio" name="scn" value="new">
-      <span><b>Собрать новый заливочный</b><span class="t2">Только кампании из правил. Так делались файлы по ТОП-50 и B2C.</span></span></label>
-    <div id="newOpts" class="hide">
-      <hr class="sep">
-      <label class="opt"><input type="checkbox" id="onlyChanged"><span><b>Только строки с новым значением</b><span class="t2">В файл попадут только те строки, которым правило дало новое значение. Работает в обоих сценариях.</span></span></label>
-    </div>
-    <details style="margin-top:10px"><summary>Дополнительно — округление</summary>
-      <p class="small muted" style="margin:6px 0 0">Значения и так округляются по правилам математики (0,5 → вверх);
-        то, что округлилось бы в 0, не проставляется. Менять нужно редко.</p>
-      <label class="opt"><input type="checkbox" id="roundNew" checked><span>Округлять новые значения до целых</span></label>
-      <label class="opt"><input type="checkbox" id="roundAll" checked><span>Округлять и нетронутые строки файла</span></label>
-    </details>
-  </div>
-  <div class="card" id="c1">
-    <div class="step"><span class="num">2</span> Заливочный из Оригами <span class="hint">— шаблон</span></div>
+<div class="card" id="c1">
+    <div class="step"><span class="num">1</span> Заливочный из Оригами <span class="hint">— строки и текущие значения</span></div>
     <div id="dropCsv" class="drop">Перетащи <b>export_campaign_auto_strategy_*.csv</b><br><span class="small">ставки (goal_values) или бюджеты (weekly_budgets) — тип определится сам</span>
       <input id="fileCsv" type="file" accept=".csv" class="hide"></div>
     <div id="csvInfo"></div>
@@ -47,7 +30,7 @@ document.getElementById("app").innerHTML = `
   </div>
 
   <div class="card off" id="c2">
-    <div class="step"><span class="num">3</span> Мастер-файл <span class="hint">— источник значений</span></div>
+    <div class="step"><span class="num">2</span> Мастер-файл <span class="hint">— источник значений</span></div>
     <div id="dropSrc" class="drop">Перетащи <b>xlsx</b> или <b>csv</b><br><span class="small">можно несколько файлов, все листы станут доступны</span>
       <input id="fileSrc" type="file" accept=".xlsx,.xls,.csv" multiple class="hide"></div>
     <div id="srcPane" class="hide"></div>
@@ -55,7 +38,7 @@ document.getElementById("app").innerHTML = `
   </div>
 
   <div class="card off" id="c3">
-    <div class="step"><span class="num">4</span> Правила <span class="hint">— какой пул РК из какого листа</span></div>
+    <div class="step"><span class="num">3</span> Правила <span class="hint">— какой пул РК из какого листа</span></div>
     <p class="small muted" style="margin-top:-6px">Одно правило = один пул кампаний. Нужно объединить ТОП-50 и B2C в один файл — добавь два правила.</p>
     <div id="rules"></div>
     <div id="missBlock"></div>
@@ -64,7 +47,7 @@ document.getElementById("app").innerHTML = `
 
   
   <div class="card off" id="c5">
-    <div class="step"><span class="num">5</span> Проверка и файл</div>
+    <div class="step"><span class="num">4</span> Проверка и файл</div>
     <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
       <button id="go" class="btn" disabled>Собрать и проверить</button>
       <button id="dl" class="btn sec hide">↓ Скачать заливочный</button>
@@ -100,10 +83,9 @@ document.getElementById("app").innerHTML = `
   <div class="card">
     <h3 style="margin:0 0 10px;font-size:16px">Порядок работы</h3>
     <ol class="small" style="margin:0;padding-left:18px;line-height:1.85">
-      <li>В шаге 1 выбери, что делаем: дополнить исходник или собрать новый заливочный.</li>
-      <li>Выгрузи из Оригами заливочный (ставки или недельные бюджеты) и загрузи его в шаге 2. Там же можно добавить <b>запасные выгрузки</b> — из них возьмутся строки кампаний, которых нет в основной.</li>
-      <li>В шаге 3 загрузи мастер-файл и отметь нужные листы — грузить всю книгу не нужно.</li>
-      <li>В шаге 4 настрой правила: лист, охват (все РК листа или список ID), какой столбец в какую цель.</li>
+      <li>Выгрузи из Оригами заливочный (ставки или недельные бюджеты) и загрузи его в шаге 1. Там же можно добавить <b>запасные выгрузки</b> — из них возьмутся строки кампаний, которых нет в основной.</li>
+      <li>В шаге 2 загрузи мастер-файл и отметь нужные листы — грузить всю книгу не нужно.</li>
+      <li>В шаге 3 настрой правила: лист, охват (все РК листа или список ID), какой столбец в какую цель.</li>
       <li>Нажми «Собрать и проверить».</li>
       <li>Посмотри чек-лист и замечания, скачай файл и отчёт. Если часть РК заливочным не решается — там же кнопка «↓ Список на руки».</li>
       <li>После заливки — вкладка <b>«Проверка заливки»</b>: свежая выгрузка + залитый файл покажут, что реально встало.</li>
@@ -124,11 +106,15 @@ document.getElementById("app").innerHTML = `
   </div>
 
   <div class="card">
-    <h3 style="margin:0 0 10px;font-size:16px">Сценарии</h3>
+    <h3 style="margin:0 0 10px;font-size:16px">Что попадает в файл</h3>
+    <p class="small" style="margin:0 0 8px">Заливочный — это список правок, и ничего кроме. Строка идёт в файл,
+      только если правило дало ей значение <b>и оно отличается от текущего</b>.</p>
     <ul class="small" style="margin:0;padding-left:18px;line-height:1.8">
-      <li><b>Дополнить исходник</b> — файл остаётся целиком, меняются только найденные значения.</li>
-      <li><b>Собрать новый заливочный</b> — только кампании из правил (по списку ID или все из листа).</li>
-      <li><b>Только строки с новым значением</b> — всё, что «без изменений», в файл не попадёт.</li>
+      <li><b>Уже стоит нужное значение</b> — строка не идёт в файл. Оригами всё равно засчитывает только
+        реальные изменения, а лишняя строка может уронить всю заливку. Такие показываются отдельным списком.</li>
+      <li><b>Нет нового значения</b> — строка не трогается и в файл не идёт.</li>
+      <li><b>Значение округляется в 0</b> — не проставляется, уходит в «Список на руки».</li>
+      <li>Округление до целых по правилам математики (0,5 → вверх) идёт всегда, отключить нельзя.</li>
     </ul>
   </div>
 

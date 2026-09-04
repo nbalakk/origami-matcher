@@ -25,7 +25,7 @@ var Rules=(function(){
         Object.keys(rule.map).forEach(function(key){
           var col=rule.map[key]; if(col===undefined||col<0)return;
           var raw=Fmt.num(row[col]); if(raw===null||raw<=0)return;
-          var val=opts.roundNew?Fmt.roundHalfUp(raw):raw;
+          var val=(!opts||opts.roundNew!==false)?Fmt.roundHalfUp(raw):raw;
           if(val<=0){skippedZero++;zeros.push({cid:cid,key:key,raw:raw});return;}
           var k=cid+"|"+key,prev=lut[k];
           if(prev!==undefined&&prev!==val)

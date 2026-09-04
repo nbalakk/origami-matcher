@@ -2,7 +2,7 @@
    МОДУЛЬ 9 · UI
    ══════════════════════════════════════════════════════════════════════════ */
 var VERSION="v3.0";
-var S={exp:null,csvName:"",spares:[],sources:[],rules:[],scenario:"update",result:null,audit:null,addMissing:false,
+var S={exp:null,csvName:"",spares:[],sources:[],rules:[],result:null,audit:null,addMissing:false,
         v1:null,v2:null,v2name:""};
 var $=function(i){return document.getElementById(i);};
 
@@ -364,21 +364,15 @@ function renderRules(){
 }
 
 /* ---------- шаг 4 ---------- */
-document.querySelectorAll('input[name=scn]').forEach(function(r){r.addEventListener("change",function(){
-  S.scenario=r.value;
-  document.querySelectorAll('#tab-build .radio').forEach(function(l){l.classList.toggle("on",l.querySelector("input").checked);});
-  $("newOpts").classList.toggle("hide",S.scenario!=="new"); renderMiss(); ready(); });});
-["roundNew","roundAll","onlyChanged"].forEach(function(id){$(id).addEventListener("change",function(){renderMiss();ready();});});
 
 function plan(){
-  return {exp:S.exp,sources:S.sources,rules:S.rules,scenario:S.scenario,
+  return {exp:S.exp,sources:S.sources,rules:S.rules,
     spares:S.spares,accountBook:accLoad(),
-    onlyChanged:$("onlyChanged").checked,roundNew:$("roundNew").checked,roundAll:$("roundAll").checked,
     addMissing:!!S.addMissing};
 }
 function renderMiss(){
   var el=$("missBlock"); if(!S.exp||!S.rules.length){el.innerHTML="";return;}
-  var R=Rules.resolve(S.exp,S.sources,S.rules,{roundNew:$("roundNew").checked});
+  var R=Rules.resolve(S.exp,S.sources,S.rules,{roundNew:true});
   var missing=R.campaigns.filter(function(c){return !S.exp.campaigns[c]&&Object.keys(R.lut).some(function(k){return k.indexOf(c+"|")===0;});});
   if(!missing.length){ el.innerHTML=''; return; }
   if(S.exp.mode==="bids"){
@@ -438,10 +432,8 @@ $("go").addEventListener("click",function(){
   var h='<div class="stats">'+
     '<div class="stat"><div class="n">'+st.rowsOut+'</div><div class="l">строк в файле</div></div>'+
     '<div class="stat"><div class="n">'+st.campaigns+'</div><div class="l">кампаний</div></div>'+
-    '<div class="stat"><div class="n">'+st.inserted+'</div><div class="l">значений подставлено</div></div>'+
-    '<div class="stat"><div class="n">'+st.changed+'</div><div class="l">реально изменилось</div></div>'+
-    (st.constructed?'<div class="stat"><div class="n">'+st.constructed+'</div><div class="l">строк добавлено</div></div>':'')+
-    (st.rounded?'<div class="stat"><div class="n">'+st.rounded+'</div><div class="l">округлено прочих</div></div>':'')+'</div>';
+    '<div class="stat"><div class="n">'+st.same+'</div><div class="l">уже стояло как надо</div></div>'+
+    (st.constructed?'<div class="stat"><div class="n">'+st.constructed+'</div><div class="l">строк из запасных выгрузок</div></div>':'')+'</div>';
 
   h+='<div class="box '+(fail?'err':'ok')+'" style="margin-top:12px"><b>Пред-полётная проверка: '+
      (fail?('провалено пунктов — '+fail+'. Файл лучше не заливать.'):'все пункты пройдены — файл безопасен для заливки')+'</b></div>';
@@ -465,7 +457,7 @@ $("go").addEventListener("click",function(){
       res.preview.map(function(p){return '<tr class="'+p.kind+'"><td>'+esc(p.cid)+'</td><td>'+esc(String(p.name).slice(0,42))+'</td><td>'+esc(String(p.goal).slice(0,28))+'</td><td>'+esc(p.was)+'</td><td><b>'+esc(p.now)+'</b></td></tr>';}).join("")+'</table>';
     d2.appendChild(w); $("report").appendChild(d2);
   }
-  S.fileName=S.csvName.replace(/\.csv$/i,"")+(bids?"_СТАВКИ":"_БЮДЖЕТ")+(S.scenario==="new"?"_НОВЫЙ":"")+".csv";
+  S.fileName=S.csvName.replace(/[.]csv$/i,"")+(bids?"_СТАВКИ":"_БЮДЖЕТ")+"_ПРАВКИ.csv";
   $("dl").classList.remove("hide"); $("dlRep").classList.remove("hide");
   $("dlMan").classList.toggle("hide",!(res.manual&&res.manual.length));
   $("status").textContent=fail?"⚠ есть провалы проверки":"Готово · "+S.fileName;
@@ -498,12 +490,11 @@ $("dlRep").addEventListener("click",function(){
   var st=S.result.stats,L=[];
   L.push("ОТЧЁТ О СБОРКЕ ЗАЛИВОЧНОГО ФАЙЛА  ("+VERSION+")");
   L.push("шаблон: "+S.csvName);
-  L.push("режим: "+(S.exp.mode==="bids"?"ставки":"бюджеты")+" · сценарий: "+(S.scenario==="new"?"новый файл":"дополнение"));
+  L.push("режим: "+(S.exp.mode==="bids"?"ставки":"бюджеты")+" · в файле только реальные правки");
   L.push("");
   L.push("строк в файле: "+st.rowsOut+" · кампаний: "+st.campaigns);
-  L.push("значений подставлено: "+st.inserted+" · реально изменилось: "+st.changed);
+  L.push("строк-правок: "+st.edits+" · уже стояло как надо: "+st.same+(st.constructed?" · из них из запасных выгрузок: "+st.constructed:""));
   if(st.constructed)L.push("строк добавлено: "+st.constructed);
-  if(st.rounded)L.push("округлено прочих строк: "+st.rounded);
   L.push("");L.push("ПРАВИЛА:");
   S.rules.forEach(function(r,i){
     L.push(" "+(i+1)+") лист «"+r.name+"» · охват: "+(r.useScope?("список из "+r.scopeIds.length+" ID"):"все РК листа"));

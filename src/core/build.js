@@ -13,27 +13,30 @@ var Build=(function(){
         target:target,value:value,reason:reason,
         known:known?(known.login+' · '+known.place+' · '+known.strategy+
           (known.goals.length?' · целей '+known.goals.length:' · целевых строк нет')):''}); };
-    var scope=null;
-    if(plan.scenario==="new"){ scope={}; R.campaigns.forEach(function(c){scope[c]=1;}); }
-    var inScope=function(c){ return !scope||scope[c]===1; };
-    var applied={},pairsDone={},nIns=0,nChg=0,nRnd=0,nKeep=0;
+    /* Заливочный — это список правок, и ничего кроме.
+       Строка идёт в файл, только если правило дало ей значение И оно
+       отличается от текущего. Оригами отбивает весь файл из-за одной плохой
+       строки, поэтому строка, которая ничего не меняет, — чистый риск без
+       выгоды: сервис всё равно засчитывает только реальные изменения.
+       Совпавшие показываем отдельным списком, чтобы ничего не пропадало молча. */
+    var roundNew=plan.roundNew!==false;
+    var scope={}; R.campaigns.forEach(function(c){scope[c]=1;});
+    var inScope=function(c){ return scope[c]===1; };
+    var applied={},pairsDone={},nIns=0,same=[];
 
     exp.rows.forEach(function(r){
-      if(!inScope(r.cid))return;
       var key=r.cid+"|"+(exp.mode==="bids"?r.gid:"BUDGET");
       var nv=lut[key];
-      var sv=Fmt.splitVal(r.line);
-      if(nv!==undefined){
-        var s=Fmt.out(nv,plan.roundNew);
-        out.push(sv.prefix+";"+s); nIns++; applied[r.cid]=1; pairsDone[key]=1;
-        if(s!==sv.value){ nChg++; if(preview.length<80)preview.push({cid:r.cid,name:r.f[exp.C.campName],
-          goal:exp.C.goalName>=0?r.f[exp.C.goalName]:"бюджет",was:sv.value,now:s,kind:"chg"}); }
-      }else{
-        if(plan.onlyChanged)return;   /* работает в обоих сценариях */
-        var keep=sv.value;
-        if(plan.roundAll){ var ov=Fmt.num(sv.value); if(ov!==null){ var rs=String(Fmt.roundHalfUp(ov)); if(rs!==sv.value)nRnd++; keep=rs; } }
-        out.push(sv.prefix+";"+keep); nKeep++;
+      if(nv===undefined)return;
+      pairsDone[key]=1;
+      var sv=Fmt.splitVal(r.line),val=Fmt.out(nv,roundNew);
+      if(val===sv.value){
+        same.push(r.cid+(exp.mode==="bids"?("  ·  "+glabel(r.gid)):"")+"  =  "+val);
+        return;
       }
+      out.push(sv.prefix+";"+val); nIns++; applied[r.cid]=1;
+      if(preview.length<80)preview.push({cid:r.cid,name:r.f[exp.C.campName],
+        goal:exp.C.goalName>=0?glabel(r.gid):"бюджет",was:sv.value,now:val,kind:"chg"});
     });
 
     /* ---- кампании, которых нет в заливочном ----------------------------
@@ -69,11 +72,11 @@ var Build=(function(){
             var sp=spareRow(cid,exp.mode==="bids"?gid:null);
             if(!sp)return;
             var sv=Fmt.splitVal(sp.row.line);
-            out.push(sv.prefix+";"+Fmt.out(lut[k],plan.roundNew));
+            out.push(sv.prefix+";"+Fmt.out(lut[k],roundNew));
             constructed++; got++; applied[cid]=1; pairsDone[k]=1;
             if(fromSpare.indexOf(sp.name)<0)fromSpare.push(sp.name);
             if(preview.length<80)preview.push({cid:cid,name:(R.meta[cid]||{}).name||"",
-              goal:exp.mode==="bids"?glabel(gid):"бюджет",was:"—",now:Fmt.out(lut[k],plan.roundNew),kind:"new"});
+              goal:exp.mode==="bids"?glabel(gid):"бюджет",was:"—",now:Fmt.out(lut[k],roundNew),kind:"new"});
           });
         }
         if(got===keys.length)return;
@@ -125,19 +128,26 @@ var Build=(function(){
         note:"Эти ID есть в твоём списке, но их нет в выбранном листе мастер-файла.",items:r.notOnSheet});
       r.notOnSheet=null;
     });
+    /* ---- что уже стоит как надо ---- */
+    if(same.length)issues.push({lvl:"info",
+      title:"Уже стоит нужное значение: "+same.length+(exp.mode==="bids"?" строк":" кампаний"),
+      note:"В файл не пошли — менять нечего. Оригами засчитывает только реальные изменения, "+
+           "а лишняя строка может уронить всю заливку.",items:same.slice(0,400)});
+
     /* ---- ничего не собралось: чаще всего перепутаны файлы ---- */
     if(out.length-1===0){
       var inExp=R.campaigns.filter(function(c){return exp.campaigns[c];}).length;
-      issues.push({lvl:"err",title:"В файл не попало ни одной строки",
-        note: exp.blank
-          ? ("Кампаний в правилах: "+R.campaigns.length+". Ни одной строки собрать не удалось — "+
-             "проверь выбранный столбец со значениями и заполни AccountID для аккаунтов из списка выше.")
-          : "Кампаний в правилах: "+R.campaigns.length+", из них есть в заливочном: "+inExp+"."+
-             (inExp===0
-               ? " Совпадений нет вообще — почти наверняка загружены несовместимые файлы: другой заливочный (другая дата или аккаунты), не тот лист, либо неверно определён столбец ID (проверь «Настройки листов»)."
-               : (plan.onlyChanged
-                   ? " Совпадения есть, но ни у одной кампании нет нового значения — выключи «Только строки с новым значением» или проверь выбранный столбец."
-                   : " Проверь выбранный столбец со значениями.")),items:[]});
+      issues.push({lvl:same.length?"warn":"err",
+        title:same.length?"Менять нечего — всё уже стоит как в мастер-файле":"В файл не попало ни одной строки",
+        note: same.length
+          ? ("Совпало "+same.length+" значений, и все они уже такие в заливочном. Файл заливать не нужно.")
+          : (exp.blank
+            ? ("Кампаний в правилах: "+R.campaigns.length+". Ни одной строки собрать не удалось — "+
+               "проверь выбранный столбец со значениями.")
+            : "Кампаний в правилах: "+R.campaigns.length+", из них есть в заливочном: "+inExp+"."+
+              (inExp===0
+                ? " Совпадений нет вообще — почти наверняка загружены несовместимые файлы: другой заливочный (другая дата или аккаунты), не тот лист, либо неверно определён столбец ID (проверь «Настройки листов»)."
+                : " Проверь выбранный столбец со значениями.")),items:[]});
     }
     (R.zeros||[]).forEach(function(z){ if(inScope(z.cid))
       mrow(z.cid,z.key==="BUDGET"?"бюджет":glabel(z.key),z.raw,"округляется в 0 — целым не поставить"); });
@@ -148,7 +158,7 @@ var Build=(function(){
     var campSet={}; out.slice(1).forEach(function(l){ campSet[Fmt.digits(Fmt.parseLine(l)[exp.C.camp]||"")]=1; });
     return {text:text,issues:issues,preview:preview,manual:manual,lut:lut,meta:R.meta,
       stats:{rowsIn:exp.rows.length,rowsOut:out.length-1,campaigns:Object.keys(campSet).length,
-        inserted:nIns,changed:nChg,kept:nKeep,rounded:nRnd,constructed:constructed,
+        edits:out.length-1,same:same.length,constructed:constructed,
         sourceCampaigns:R.campaigns.length,missing:missing.length}};
   }
   return {run:run};
