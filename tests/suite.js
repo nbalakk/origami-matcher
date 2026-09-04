@@ -368,6 +368,15 @@
   eq("сверка: нет в выгрузке 1",v.absent.length,1);
   eq("сверка: показано что заливали",v.bad[0].want,"27");
   eq("сверка: показано что сейчас",v.bad[0].got,"68");
+  eq("сверка: проценты сходятся",v.ok+v.bad.length+v.absent.length,v.total);
+  eq("сверка: разбивка по аккаунтам",v.byAcc["900101"].ok,1);
+  var vApp=Verify.compare(Exp.parse(BOM+HDR+CL+
+      row("900101","acc-media","800000001","camp_a","Поиск","strat","1900001695","Цель 1900001695","90")+CL),
+    BOM+HDR+CL+row("900101","acc-media","800000001","camp_a","Поиск","strat","1900001695","Цель 1900001695","93")+CL);
+  eq("сверка: цель названа по справочнику",vApp.bad[0].goal,"апп-андроид");
+  var vAll=Verify.compare(fresh,BOM+HDR+CL+
+    row("900101","acc-media","800000001","camp_a","Поиск","strat","357428649","B2B","102")+CL);
+  eq("сверка: всё встало",vAll.bad.length+vAll.absent.length,0);
 
   /* xlsx round-trip */
   if (withXlsx) {

@@ -30,8 +30,12 @@ function wireDrop(dropId,inputId,cb){
   d.addEventListener("click",function(){f.click();});
   ["dragenter","dragover"].forEach(function(e){d.addEventListener(e,function(ev){ev.preventDefault();d.classList.add("hot");});});
   ["dragleave","drop"].forEach(function(e){d.addEventListener(e,function(ev){ev.preventDefault();d.classList.remove("hot");});});
-  d.addEventListener("drop",function(ev){ev.preventDefault();cb(ev.dataTransfer.files);});
-  f.addEventListener("change",function(){cb(f.files);f.value="";});
+  /* FileList у поля живой: после f.value="" он пустеет, и обработчик,
+     читающий файл асинхронно, получает undefined. Отдаём массив-копию,
+     которая переживёт очистку поля. */
+  function hand(list){ return Array.prototype.slice.call(list||[]); }
+  d.addEventListener("drop",function(ev){ev.preventDefault();cb(hand(ev.dataTransfer.files));});
+  f.addEventListener("change",function(){var picked=hand(f.files);f.value="";cb(picked);});
 }
 function readText(file,cb){ var r=new FileReader(); r.onload=function(){cb(r.result);}; r.readAsText(file,"utf-8"); }
 
@@ -64,35 +68,50 @@ function bankNote(e){
 /* ---------- шаг 1 ---------- */
 /* Запасные выгрузки. Нужны, когда часть кампаний не попала в основную:
    их настоящие строки берутся отсюда, а не собираются по догадке. */
+var spareRejects=[];
 function renderSpares(){
   var box=$("spareInfo"); if(!box)return;
   box.innerHTML=S.spares.map(function(sp,i){
     return '<div class="fitem"><span><b>'+esc(sp.name)+'</b> <span class="muted">· '+
       (sp.mode==="bids"?"ставки":"бюджеты")+' · кампаний '+Object.keys(sp.campaigns).length+'</span></span>'+
-      '<button class="rmv" data-spare="'+i+'">убрать</button></div>';}).join("");
+      '<button class="rmv" data-spare="'+i+'">убрать</button></div>';}).join("")
+    /* отказы дорисовываем здесь же: раньше их затирала эта перерисовка,
+       и файл отбрасывался молча */
+    +spareRejects.map(function(r){
+      return '<div class="box err small">'+esc(r.name)+' — не подошёл: '+esc(r.why)+'</div>';}).join("");
   box.querySelectorAll("[data-spare]").forEach(function(b){b.addEventListener("click",function(){
     S.spares.splice(+this.dataset.spare,1); renderSpares(); renderMiss(); ready();});});
 }
 wireDrop("dropSpare","fileSpare",function(files){
   if(!S.exp){ return; }
+  spareRejects=[];
   var left=files.length;
   Array.prototype.forEach.call(files,function(f){
     readText(f,function(txt){
       var e=Exp.parse(txt);
-      if(e.ok&&e.mode===S.exp.mode){ e.name=f.name; S.spares.push(e); accLearn(Bank.harvest(e)); }
-      else { $("spareInfo").insertAdjacentHTML("beforeend",
-        '<div class="box err small">'+esc(f.name)+' — не подходит: нужен заливочный того же типа ('+
-        (S.exp.mode==="bids"?"ставки":"бюджеты")+').</div>'); }
+      if(!e.ok) spareRejects.push({name:f.name,why:"нет колонки CampaignID, это не заливочный из Оригами"});
+      else if(e.mode!==S.exp.mode) spareRejects.push({name:f.name,
+        why:"это "+(e.mode==="bids"?"ставки":"бюджеты")+", а основной заливочный — "+
+            (S.exp.mode==="bids"?"ставки":"бюджеты")});
+      else { e.name=f.name; S.spares.push(e); accLearn(Bank.harvest(e)); }
       if(!--left){ renderSpares(); renderMiss(); ready(); }
     });
   });
 });
 wireDrop("dropCsv","fileCsv",function(files){
-  var file=files[0]; if(!file)return; S.csvName=file.name;
+  var file=files[0]; if(!file)return;
   readText(file,function(txt){
     var e=Exp.parse(txt);
-    if(!e.ok){ $("csvInfo").innerHTML='<div class="box err">Нет колонки <b>CampaignID</b> — это точно заливочный из Оригами?</div>'; return; }
-    S.exp=e; S.rules=[]; accLearn(Bank.harvest(e));
+    /* Имя подменяем только после удачного разбора: иначе собранный файл
+       назовётся по отвергнутому, а данные останутся от прошлого. */
+    if(!e.ok){
+      $("csvInfo").innerHTML='<div class="box err"><b>'+esc(file.name)+'</b> — нет колонки <b>CampaignID</b>. '+
+        'Это точно заливочный из Оригами?'+
+        (S.exp?'<br><span class="small">Файл не принят. В работе остаётся <b>'+esc(S.csvName)+'</b>.</span>':'')+'</div>';
+      return;
+    }
+    S.csvName=file.name; S.exp=e; S.rules=[]; S.spares=[]; spareRejects=[];
+    accLearn(Bank.harvest(e)); renderSpares();
     $("csvInfo").innerHTML='<div class="box ok"><b>'+esc(file.name)+'</b><br><span class="pill">'+
       (e.mode==="bids"?"Ставки по целям":"Недельные бюджеты")+'</span> · строк <b>'+e.rows.length+'</b> · кампаний <b>'+
       Object.keys(e.campaigns).length+'</b>'+(e.mode==="bids"?' · целей <b>'+e.goals.length+'</b>':'')+
@@ -311,7 +330,7 @@ function renderRules(){
       '<tr><th>Совпадение</th><td>'+matchInfo(r)+'</td></tr></table>';
     h+='<table class="t" style="margin-top:6px"><tr><th style="width:40%">'+(S.exp.mode==="bids"?"Цель в заливочном":"Значение")+'</th><th>Столбец листа</th></tr>';
     keys.forEach(function(g){
-      h+='<tr><td class="k">'+esc(g.label)+'</td><td><select data-col="'+ri+'|'+g.id+'">'+colOptions(r.sheet,r.map[g.id]!==undefined?r.map[g.id]:-1)+'</select></td></tr>';
+      h+='<tr><td class="k">'+esc(Bank.goal(g.id,g.label))+'</td><td><select data-col="'+ri+'|'+g.id+'">'+colOptions(r.sheet,r.map[g.id]!==undefined?r.map[g.id]:-1)+'</select></td></tr>';
     });
     h+='</table></div>';
     return h;
@@ -503,15 +522,28 @@ $("dlRep").addEventListener("click",function(){
 });
 
 /* ---------- вкладка «Проверка заливки» ---------- */
-wireDrop("dropV1","fileV1",function(f){ if(!f[0])return; readText(f[0],function(t){
-  var e=Exp.parse(t);
-  if(!e.ok){$("v1info").innerHTML='<div class="box err">Не похоже на заливочный из Оригами.</div>';return;}
-  S.v1=e; $("v1info").innerHTML='<div class="box ok small"><b>'+esc(f[0].name)+'</b> · строк '+e.rows.length+' · кампаний '+Object.keys(e.campaigns).length+'</div>';
-  $("goV").disabled=!(S.v1&&S.v2); }); });
-wireDrop("dropV2","fileV2",function(f){ if(!f[0])return; S.v2name=f[0].name; readText(f[0],function(t){
-  S.v2=t; var n=t.split(/\r?\n/).filter(function(l){return l!=="";}).length-1;
-  $("v2info").innerHTML='<div class="box ok small"><b>'+esc(f[0].name)+'</b> · строк '+n+'</div>';
-  $("goV").disabled=!(S.v1&&S.v2); }); });
+wireDrop("dropV1","fileV1",function(files){
+  var file=files[0]; if(!file)return;
+  readText(file,function(t){
+    var e=Exp.parse(t);
+    if(!e.ok){ $("v1info").innerHTML='<div class="box err"><b>'+esc(file.name)+'</b> — не похоже на заливочный из Оригами.</div>'; return; }
+    S.v1=e;
+    $("v1info").innerHTML='<div class="box ok small"><b>'+esc(file.name)+'</b> · '+
+      (e.mode==="bids"?"ставки":"бюджеты")+' · строк '+e.rows.length+' · кампаний '+Object.keys(e.campaigns).length+'</div>';
+    $("goV").disabled=!(S.v1&&S.v2);
+  });
+});
+wireDrop("dropV2","fileV2",function(files){
+  var file=files[0]; if(!file)return;
+  S.v2name=file.name;
+  readText(file,function(t){
+    S.v2=t;
+    var n=t.split(new RegExp(String.fromCharCode(13)+"?"+String.fromCharCode(10)))
+            .filter(function(l){return l!=="";}).length-1;
+    $("v2info").innerHTML='<div class="box ok small"><b>'+esc(file.name)+'</b> · строк '+n+'</div>';
+    $("goV").disabled=!(S.v1&&S.v2);
+  });
+});
 $("goV").addEventListener("click",function(){
   var r=Verify.compare(S.v1,S.v2);
   var pct=r.total?Math.round(r.ok/r.total*100):0;

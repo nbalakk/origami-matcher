@@ -16,7 +16,7 @@ var Verify=(function(){
       var cid=Fmt.digits(f[C.camp]||""),gid=C.goal>=0?Fmt.digits(f[C.goal]||""):"";
       var acc=Fmt.digits(f[C.acc]||"");
       var k=cid+"|"+gid, cur=live[k];
-      var rec={cid:cid,gid:gid,name:f[C.campName],goal:C.goalName>=0?f[C.goalName]:"бюджет",want:sv.value,got:cur,acc:acc};
+      var rec={cid:cid,gid:gid,name:f[C.campName],goal:C.goalName>=0?(typeof Bank!=="undefined"?Bank.goal(gid,f[C.goalName]):f[C.goalName]):"бюджет",want:sv.value,got:cur,acc:acc};
       byAcc[acc]=byAcc[acc]||{ok:0,bad:0,absent:0};
       if(cur===undefined){ absent.push(rec); byAcc[acc].absent++; }
       else if(Fmt.num(cur)===Fmt.num(sv.value)){ okRows.push(rec); byAcc[acc].ok++; }

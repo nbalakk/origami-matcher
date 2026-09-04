@@ -2188,7 +2188,7 @@ var Verify=(function(){
       var cid=Fmt.digits(f[C.camp]||""),gid=C.goal>=0?Fmt.digits(f[C.goal]||""):"";
       var acc=Fmt.digits(f[C.acc]||"");
       var k=cid+"|"+gid, cur=live[k];
-      var rec={cid:cid,gid:gid,name:f[C.campName],goal:C.goalName>=0?f[C.goalName]:"бюджет",want:sv.value,got:cur,acc:acc};
+      var rec={cid:cid,gid:gid,name:f[C.campName],goal:C.goalName>=0?(typeof Bank!=="undefined"?Bank.goal(gid,f[C.goalName]):f[C.goalName]):"бюджет",want:sv.value,got:cur,acc:acc};
       byAcc[acc]=byAcc[acc]||{ok:0,bad:0,absent:0};
       if(cur===undefined){ absent.push(rec); byAcc[acc].absent++; }
       else if(Fmt.num(cur)===Fmt.num(sv.value)){ okRows.push(rec); byAcc[acc].ok++; }
@@ -2403,11 +2403,11 @@ document.getElementById("app").innerHTML = `
     <h3 style="margin:0 0 10px;font-size:16px">Порядок работы</h3>
     <ol class="small" style="margin:0;padding-left:18px;line-height:1.85">
       <li>В шаге 1 выбери, что делаем: дополнить исходник или собрать новый заливочный.</li>
-      <li>Выгрузи из Оригами заливочный (ставки или недельные бюджеты) и загрузи его в шаге 2.</li>
+      <li>Выгрузи из Оригами заливочный (ставки или недельные бюджеты) и загрузи его в шаге 2. Там же можно добавить <b>запасные выгрузки</b> — из них возьмутся строки кампаний, которых нет в основной.</li>
       <li>В шаге 3 загрузи мастер-файл и отметь нужные листы — грузить всю книгу не нужно.</li>
       <li>В шаге 4 настрой правила: лист, охват (все РК листа или список ID), какой столбец в какую цель.</li>
       <li>Нажми «Собрать и проверить».</li>
-      <li>Посмотри чек-лист и замечания, скачай файл и отчёт.</li>
+      <li>Посмотри чек-лист и замечания, скачай файл и отчёт. Если часть РК заливочным не решается — там же кнопка «↓ Список на руки».</li>
       <li>После заливки — вкладка <b>«Проверка заливки»</b>: свежая выгрузка + залитый файл покажут, что реально встало.</li>
     </ol>
   </div>
@@ -2439,7 +2439,7 @@ document.getElementById("app").innerHTML = `
     <ul class="small" style="margin:0;padding-left:18px;line-height:1.8">
       <li>Определяет тип заливочного и берёт список целей <b>из него же</b> — подписи целей всегда совпадут.</li>
       <li>Находит строку заголовков листа (встречались 1-я, 3-я и 5-я) и столбец ID.</li>
-      <li>Подбирает столбец под цель: «<b>НОВАЯ</b>», «Итоговая» приоритетнее «тек.», «по чеку», «Ветка», «Δ», «кэф».</li>
+      <li><b>Столбец под цель не подбирает</b> — кейсы каждый раз разные, выбираешь сам. Рядом с каждой целью показан её человеческий вид: выгрузка часто отдаёт безымянное «Цель 1900001695».</li>
       <li>Игнорирует «без изменений», <code>#REF!</code>, <code>#ДЕЛ/0!</code>, пустые ячейки и нули.</li>
       <li>Не проставляет значения, округляющиеся в <b>0</b> (например 0,38) — иначе кампания встанет.</li>
       <li>Читает числа с запятой и неразрывным пробелом: <code>294,03</code>, <code>1 500</code>.</li>
@@ -2455,8 +2455,14 @@ document.getElementById("app").innerHTML = `
       «Цель … для размещения «Поиск» не найдена в актуальной автостратегии (строка N)».
       Какие цели у кампании — из мастер-файла не выводится. Такие РК программа покажет отдельным списком:
       их нужно добрать перевыгрузкой из Оригами.</span></div>
-    <div class="box warn"><b>Для бюджетов</b> дописать кампанию можно (там нет целей), но только с известным AccountID —
-      он берётся из заливочного по логину либо вводится вручную. Номер аккаунта программа не выдумывает.</div>
+    <div class="box warn"><b>То же и для бюджетов.</b> Аккаунт, размещение и стратегию кампании из мастер-файла
+      не вывести, а угаданную строку Оригами отобьёт вместе со всем файлом.<br>
+      <span class="small">Кампанию, которой нет в основной выгрузке, можно добрать из <b>запасной</b>: загрузи
+      вторую выгрузку на шаге 2, и её настоящая строка возьмётся оттуда — меняется только значение. Запасная
+      может быть старее основной, программа об этом предупредит.</span></div>
+    <div class="box info"><b>Чего нет ни в одной выгрузке — уходит в «↓ Список на руки».</b>
+      <span class="small">Отдельный CSV: кампания, логин, что ставить, значение, причина и что о ней известно
+      из справочника. Туда же попадают цели, которых у кампании нет, и значения, округляющиеся в ноль.</span></div>
     <p class="small muted" style="margin:10px 0 0">Перед скачиванием файл независимо проверяется: нет выдуманных строк,
       нет дублей, значения совпадают с отчётом, верное число колонок, целые значения, нет нулей, BOM и CRLF на месте.
       <b>Красный чек-лист — файл заливать нельзя.</b></p>
@@ -2526,8 +2532,12 @@ function wireDrop(dropId,inputId,cb){
   d.addEventListener("click",function(){f.click();});
   ["dragenter","dragover"].forEach(function(e){d.addEventListener(e,function(ev){ev.preventDefault();d.classList.add("hot");});});
   ["dragleave","drop"].forEach(function(e){d.addEventListener(e,function(ev){ev.preventDefault();d.classList.remove("hot");});});
-  d.addEventListener("drop",function(ev){ev.preventDefault();cb(ev.dataTransfer.files);});
-  f.addEventListener("change",function(){cb(f.files);f.value="";});
+  /* FileList у поля живой: после f.value="" он пустеет, и обработчик,
+     читающий файл асинхронно, получает undefined. Отдаём массив-копию,
+     которая переживёт очистку поля. */
+  function hand(list){ return Array.prototype.slice.call(list||[]); }
+  d.addEventListener("drop",function(ev){ev.preventDefault();cb(hand(ev.dataTransfer.files));});
+  f.addEventListener("change",function(){var picked=hand(f.files);f.value="";cb(picked);});
 }
 function readText(file,cb){ var r=new FileReader(); r.onload=function(){cb(r.result);}; r.readAsText(file,"utf-8"); }
 
@@ -2560,35 +2570,50 @@ function bankNote(e){
 /* ---------- шаг 1 ---------- */
 /* Запасные выгрузки. Нужны, когда часть кампаний не попала в основную:
    их настоящие строки берутся отсюда, а не собираются по догадке. */
+var spareRejects=[];
 function renderSpares(){
   var box=$("spareInfo"); if(!box)return;
   box.innerHTML=S.spares.map(function(sp,i){
     return '<div class="fitem"><span><b>'+esc(sp.name)+'</b> <span class="muted">· '+
       (sp.mode==="bids"?"ставки":"бюджеты")+' · кампаний '+Object.keys(sp.campaigns).length+'</span></span>'+
-      '<button class="rmv" data-spare="'+i+'">убрать</button></div>';}).join("");
+      '<button class="rmv" data-spare="'+i+'">убрать</button></div>';}).join("")
+    /* отказы дорисовываем здесь же: раньше их затирала эта перерисовка,
+       и файл отбрасывался молча */
+    +spareRejects.map(function(r){
+      return '<div class="box err small">'+esc(r.name)+' — не подошёл: '+esc(r.why)+'</div>';}).join("");
   box.querySelectorAll("[data-spare]").forEach(function(b){b.addEventListener("click",function(){
     S.spares.splice(+this.dataset.spare,1); renderSpares(); renderMiss(); ready();});});
 }
 wireDrop("dropSpare","fileSpare",function(files){
   if(!S.exp){ return; }
+  spareRejects=[];
   var left=files.length;
   Array.prototype.forEach.call(files,function(f){
     readText(f,function(txt){
       var e=Exp.parse(txt);
-      if(e.ok&&e.mode===S.exp.mode){ e.name=f.name; S.spares.push(e); accLearn(Bank.harvest(e)); }
-      else { $("spareInfo").insertAdjacentHTML("beforeend",
-        '<div class="box err small">'+esc(f.name)+' — не подходит: нужен заливочный того же типа ('+
-        (S.exp.mode==="bids"?"ставки":"бюджеты")+').</div>'); }
+      if(!e.ok) spareRejects.push({name:f.name,why:"нет колонки CampaignID, это не заливочный из Оригами"});
+      else if(e.mode!==S.exp.mode) spareRejects.push({name:f.name,
+        why:"это "+(e.mode==="bids"?"ставки":"бюджеты")+", а основной заливочный — "+
+            (S.exp.mode==="bids"?"ставки":"бюджеты")});
+      else { e.name=f.name; S.spares.push(e); accLearn(Bank.harvest(e)); }
       if(!--left){ renderSpares(); renderMiss(); ready(); }
     });
   });
 });
 wireDrop("dropCsv","fileCsv",function(files){
-  var file=files[0]; if(!file)return; S.csvName=file.name;
+  var file=files[0]; if(!file)return;
   readText(file,function(txt){
     var e=Exp.parse(txt);
-    if(!e.ok){ $("csvInfo").innerHTML='<div class="box err">Нет колонки <b>CampaignID</b> — это точно заливочный из Оригами?</div>'; return; }
-    S.exp=e; S.rules=[]; accLearn(Bank.harvest(e));
+    /* Имя подменяем только после удачного разбора: иначе собранный файл
+       назовётся по отвергнутому, а данные останутся от прошлого. */
+    if(!e.ok){
+      $("csvInfo").innerHTML='<div class="box err"><b>'+esc(file.name)+'</b> — нет колонки <b>CampaignID</b>. '+
+        'Это точно заливочный из Оригами?'+
+        (S.exp?'<br><span class="small">Файл не принят. В работе остаётся <b>'+esc(S.csvName)+'</b>.</span>':'')+'</div>';
+      return;
+    }
+    S.csvName=file.name; S.exp=e; S.rules=[]; S.spares=[]; spareRejects=[];
+    accLearn(Bank.harvest(e)); renderSpares();
     $("csvInfo").innerHTML='<div class="box ok"><b>'+esc(file.name)+'</b><br><span class="pill">'+
       (e.mode==="bids"?"Ставки по целям":"Недельные бюджеты")+'</span> · строк <b>'+e.rows.length+'</b> · кампаний <b>'+
       Object.keys(e.campaigns).length+'</b>'+(e.mode==="bids"?' · целей <b>'+e.goals.length+'</b>':'')+
@@ -2807,7 +2832,7 @@ function renderRules(){
       '<tr><th>Совпадение</th><td>'+matchInfo(r)+'</td></tr></table>';
     h+='<table class="t" style="margin-top:6px"><tr><th style="width:40%">'+(S.exp.mode==="bids"?"Цель в заливочном":"Значение")+'</th><th>Столбец листа</th></tr>';
     keys.forEach(function(g){
-      h+='<tr><td class="k">'+esc(g.label)+'</td><td><select data-col="'+ri+'|'+g.id+'">'+colOptions(r.sheet,r.map[g.id]!==undefined?r.map[g.id]:-1)+'</select></td></tr>';
+      h+='<tr><td class="k">'+esc(Bank.goal(g.id,g.label))+'</td><td><select data-col="'+ri+'|'+g.id+'">'+colOptions(r.sheet,r.map[g.id]!==undefined?r.map[g.id]:-1)+'</select></td></tr>';
     });
     h+='</table></div>';
     return h;
@@ -2999,15 +3024,28 @@ $("dlRep").addEventListener("click",function(){
 });
 
 /* ---------- вкладка «Проверка заливки» ---------- */
-wireDrop("dropV1","fileV1",function(f){ if(!f[0])return; readText(f[0],function(t){
-  var e=Exp.parse(t);
-  if(!e.ok){$("v1info").innerHTML='<div class="box err">Не похоже на заливочный из Оригами.</div>';return;}
-  S.v1=e; $("v1info").innerHTML='<div class="box ok small"><b>'+esc(f[0].name)+'</b> · строк '+e.rows.length+' · кампаний '+Object.keys(e.campaigns).length+'</div>';
-  $("goV").disabled=!(S.v1&&S.v2); }); });
-wireDrop("dropV2","fileV2",function(f){ if(!f[0])return; S.v2name=f[0].name; readText(f[0],function(t){
-  S.v2=t; var n=t.split(/\r?\n/).filter(function(l){return l!=="";}).length-1;
-  $("v2info").innerHTML='<div class="box ok small"><b>'+esc(f[0].name)+'</b> · строк '+n+'</div>';
-  $("goV").disabled=!(S.v1&&S.v2); }); });
+wireDrop("dropV1","fileV1",function(files){
+  var file=files[0]; if(!file)return;
+  readText(file,function(t){
+    var e=Exp.parse(t);
+    if(!e.ok){ $("v1info").innerHTML='<div class="box err"><b>'+esc(file.name)+'</b> — не похоже на заливочный из Оригами.</div>'; return; }
+    S.v1=e;
+    $("v1info").innerHTML='<div class="box ok small"><b>'+esc(file.name)+'</b> · '+
+      (e.mode==="bids"?"ставки":"бюджеты")+' · строк '+e.rows.length+' · кампаний '+Object.keys(e.campaigns).length+'</div>';
+    $("goV").disabled=!(S.v1&&S.v2);
+  });
+});
+wireDrop("dropV2","fileV2",function(files){
+  var file=files[0]; if(!file)return;
+  S.v2name=file.name;
+  readText(file,function(t){
+    S.v2=t;
+    var n=t.split(new RegExp(String.fromCharCode(13)+"?"+String.fromCharCode(10)))
+            .filter(function(l){return l!=="";}).length-1;
+    $("v2info").innerHTML='<div class="box ok small"><b>'+esc(file.name)+'</b> · строк '+n+'</div>';
+    $("goV").disabled=!(S.v1&&S.v2);
+  });
+});
 $("goV").addEventListener("click",function(){
   var r=Verify.compare(S.v1,S.v2);
   var pct=r.total?Math.round(r.ok/r.total*100):0;
@@ -3422,6 +3460,15 @@ if(_rt)_rt.addEventListener("click",async function(ev){
   eq("сверка: нет в выгрузке 1",v.absent.length,1);
   eq("сверка: показано что заливали",v.bad[0].want,"27");
   eq("сверка: показано что сейчас",v.bad[0].got,"68");
+  eq("сверка: проценты сходятся",v.ok+v.bad.length+v.absent.length,v.total);
+  eq("сверка: разбивка по аккаунтам",v.byAcc["900101"].ok,1);
+  var vApp=Verify.compare(Exp.parse(BOM+HDR+CL+
+      row("900101","acc-media","800000001","camp_a","Поиск","strat","1900001695","Цель 1900001695","90")+CL),
+    BOM+HDR+CL+row("900101","acc-media","800000001","camp_a","Поиск","strat","1900001695","Цель 1900001695","93")+CL);
+  eq("сверка: цель названа по справочнику",vApp.bad[0].goal,"апп-андроид");
+  var vAll=Verify.compare(fresh,BOM+HDR+CL+
+    row("900101","acc-media","800000001","camp_a","Поиск","strat","357428649","B2B","102")+CL);
+  eq("сверка: всё встало",vAll.bad.length+vAll.absent.length,0);
 
   /* xlsx round-trip */
   if (withXlsx) {
